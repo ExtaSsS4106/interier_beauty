@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ru" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tasker</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="static/bootstrap-5.3.8-dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="static/bootstrap-5.3.8-dist/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="static/custom/css/app.css">
+</head>
+<body class="bg-body-tertiary">
+
+    <!-- Адрес API. На телефоне/в WebView указывайте LAN-IP компьютера,
+         где крутится Django: python manage.py runserver 0.0.0.0:8080 -->
+    
+
+    <!-- Пока идёт поиск API/восстановление сессии — видим этот блок.
+         Первый render() полностью заменяет содержимое #root. -->
+    <div id="root">
+        <div class="d-flex flex-column align-items-center justify-content-center text-body-secondary"
+             style="min-height:60vh;">
+            <div class="spinner-border mb-3" role="status" aria-hidden="true"></div>
+            <div class="small">Подключаемся к серверу…</div>
+        </div>
+    </div>
+
+    <!-- Уведомления (живут вне #root, чтобы пережить перерисовку) -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" id="toastHost" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Модалка подтверждения (используется вместо window.confirm) -->
+    <div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fs-6 fw-semibold" id="confirmModalTitle">Подтверждение</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                </div>
+                <div class="modal-body text-body-secondary" id="confirmModalBody"></div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
+                    <button type="button" class="btn btn-danger btn-sm" id="confirmModalOk">Удалить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Классические скрипты выполняются до deferred-модулей:
+         nunjucks нужен для templates.js, bootstrap — для модалок/тостов.
+         Bootstrap подключаем не-модульным скриптом: в модульном виде Vite
+         оборачивает его UMD в CommonJS и window.bootstrap не появляется. -->
+    <script src="nunjucks.min.js"></script>
+    <script src="bootstrap.bundle.min.js"></script>
+    <script type="module" src="templates.js"></script>
+    <script type="module" src="./app.js"></script>
+    <script type="module" src="static/custom/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+/* ============================================================
+   CSS-переменные
+   ============================================================ */
+
+:root {
+    /* Высота навбара. Обновляется из app.js.
+       Fallback — 60px до первого расчёта. */
+    --header-h: 60px;
+}
+
+
+/* ============================================================
+   Основной контент
+   ============================================================ */
+
+.app-main {
+    /* Только под фиксированную кнопку шторки.
+       Сам навбар (sticky) уже резервирует место в потоке. */
+    padding-top: 3.5rem;
+}
+
+
+/* ============================================================
+   Кнопка шторки
+   ============================================================ */
+
+.sidebar-toggle-btn {
+    /* Строго под навбаром: top = высота навбара, без верхнего маргина */
+    top: var(--header-h);
+    margin: 0 0 .5rem .5rem;      /* top right bottom left */
+    padding: 0;
+
+    /* Выше sticky-navbar (1020), ниже offcanvas (1045):
+       при открытой шторке кнопка уходит под неё */
+    z-index: 1030;
+
+    width: 42px;
+    height: 42px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+
+/* ============================================================
+   Шторка
+   ============================================================ */
+
+.sidebar-offcanvas {
+    /* Строго под навбаром: начинается на его нижней границе
+       и тянется до низа экрана */
+    top: var(--header-h) !important;
+    height: calc(100% - var(--header-h)) !important;
+
+    
+}
+
+/* ============================================================
+   Дропдауны в навбаре
+   ============================================================ */
+
+.dropdown-notifications {
+    width: 320px;
+}
+
+.dropdown-profile {
+    width: 240px;
+}
+
+@media (max-width: 991.98px) {
+    #userBlock .dropdown {
+        position: static;
+    }
+
+    #userBlock .dropdown-menu {
+        left: 1rem !important;
+        right: 1rem !important;
+        width: auto !important;
+        max-width: none !important;
+        margin-top: .25rem;
+    }
+}
+
+@media (max-width: 360px) {
+    .dropdown-notifications,
+    .dropdown-profile {
+        width: auto;
+    }
+}
+
+
+/* ============================================================
+   Аватар пользователя
+   ============================================================ */
+
+.avatar-circle {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+}
+
+
+/* ============================================================
+   Картинки задач
+   ============================================================ */
+
+.task-thumb {
+    width: 96px;
+    height: 96px;
+    object-fit: cover;
+    border-radius: .5rem;
+    cursor: zoom-in;
+    background: var(--bs-tertiary-bg);
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.task-thumb:hover {
+    transform: scale(1.04);
+    box-shadow: 0 .25rem .75rem rgba(0, 0, 0, .25);
+}
+
+@media (max-width: 575.98px) {
+    .task-thumb {
+        width: 72px;
+        height: 72px;
+    }
+}
+
+.img-preview {
+    width: 96px;
+    height: 96px;
+    object-fit: cover;
+    border-radius: .5rem;
+    background: var(--bs-tertiary-bg);
+    flex-shrink: 0;
+}
+
+/* Bootstrap не даёт утилиты min-width — нужна для длинных названий */
+.min-w-0 {
+    min-width: 0;
+}
+
+/* ============================================================
+   Мелкие утилиты
+   ============================================================ */
+
+.dropdown-notifications .text-body-secondary {
+    font-size: .75rem;
+}
+
+
+/* ============================================================
+   Иконка-тогглер
+   ============================================================ */
+
+[aria-expanded="true"] .toggle-icon-rotate {
+    transform: rotate(180deg);
+    transition: transform .2s ease;
+}

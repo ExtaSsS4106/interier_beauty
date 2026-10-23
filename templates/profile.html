@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div style="max-width:900px;margin:0 auto;">
+
+    <!-- Шапка профиля -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-body p-4">
+
+            <div class="d-flex flex-column flex-sm-row align-items-center align-items-sm-start gap-4">
+
+                <!-- Аватар -->
+                <div class="d-flex align-items-center justify-content-center
+                            bg-primary bg-opacity-25 text-primary fw-bold rounded-circle flex-shrink-0"
+                     style="width:96px;height:96px;font-size:2rem;">
+                    {{ data.user.initials }}
+                </div>
+
+                <!-- Имя, email -->
+                <div class="flex-grow-1 text-center text-sm-start">
+                    <h1 class="h4 fw-bold mb-1">
+                        {{ data.user.first_name or user.username }}
+                    </h1>
+                    <p class="text-body-secondary mb-0">
+                        <i class="bi bi-envelope me-1"></i>{{ data.user.email or "email не указан" }}
+                    </p>
+                </div>
+
+                <!-- Дата регистрации + кнопку выйти -->
+                <div class="d-flex flex-column justify-content-between align-items-center align-items-sm-end gap-2 flex-shrink-0 align-self-stretch">
+
+                    <div class="text-body-secondary small text-center text-sm-end">
+                        <i class="bi bi-calendar3 me-1"></i>
+                        Дата регистрации
+                        <div class="badge text-bg-secondary rounded-pill mt-1">
+                            {{ data.user.date_joined_label or "—" }}
+                        </div>
+                    </div>
+
+                    <form method="post" action="/logout/" class="m-0">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                            <i class="bi bi-box-arrow-right me-1"></i>Выйти
+                        </button>
+                    </form>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Основная инфа -->
+    <div class="row g-4">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm rounded-4 h-100">
+                <div class="card-body p-4">
+                    <h2 class="h6 text-body-secondary text-uppercase mb-3">Основная информация</h2>
+
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4 text-body-secondary fw-normal">Имя пользователя</dt>
+                        <dd class="col-sm-8">{{ data.user.username or "—" }}</dd>
+
+                        <dt class="col-sm-4 text-body-secondary fw-normal">Имя</dt>
+                        <dd class="col-sm-8">{{ data.user.first_name or "—" }}</dd>
+
+                        <dt class="col-sm-4 text-body-secondary fw-normal">Фамилия</dt>
+                        <dd class="col-sm-8">{{ data.user.last_name or "—" }}</dd>
+
+                        <dt class="col-sm-4 text-body-secondary fw-normal">Email</dt>
+                        <dd class="col-sm-8 mb-0">{{ data.user.email or "—" }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,350 @@
+{% extends "auth/_layout.html" %}
+
+{% block title %}Регистрация — {{ appName }}{% endblock %}
+
+{% block content %}
+<div class="card shadow-lg border-0 rounded-4">
+    <div class="card-body p-4 p-md-5">
+
+        <div class="text-center mb-4">
+            <div class="d-inline-flex align-items-center justify-content-center bg-primary bg-opacity-10 text-primary rounded-circle mb-3"
+                 style="width:64px;height:64px;">
+                <i class="bi bi-person-plus fs-2"></i>
+            </div>
+            <h1 class="h3 fw-bold mb-2">Создать аккаунт</h1>
+            <p class="text-body-secondary small mb-0">Заполните форму, чтобы начать</p>
+        </div>
+
+        <div class="alert alert-success d-none align-items-center gap-2"
+             id="successAlert" role="alert">
+            <i class="bi bi-check-circle-fill"></i>
+            <div>Аккаунт создан! Перенаправляем…</div>
+        </div>
+
+        <div class="alert alert-danger d-none align-items-center gap-2 py-2 small"
+             id="nonFieldAlert" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <div id="nonFieldText"></div>
+        </div>
+
+        <form id="registerForm" novalidate>
+
+            <!-- Имя и фамилия -->
+            <div class="row g-3 mb-3">
+                <div class="col-12 col-sm-6">
+                    <label for="firstName" class="form-label">Имя</label>
+                    <input type="text" class="form-control form-control-lg" id="firstName"
+                           name="first_name" placeholder="Иван" maxlength="255" required>
+                    <div class="invalid-feedback" id="firstNameError">Введите имя.</div>
+                </div>
+                <div class="col-12 col-sm-6">
+                    <label for="lastName" class="form-label">Фамилия</label>
+                    <input type="text" class="form-control form-control-lg" id="lastName"
+                           name="last_name" placeholder="Иванов" maxlength="255" required>
+                    <div class="invalid-feedback" id="lastNameError">Введите фамилию.</div>
+                </div>
+            </div>
+
+            <!-- Email -->
+            <div class="mb-3">
+                <label for="email" class="form-label">Email</label>
+                <div class="input-group input-group-lg has-validation">
+                    <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+                    <input type="email"
+                           class="form-control"
+                           id="email"
+                           name="email"
+                           placeholder="name@example.com"
+                           maxlength="255"
+                           required>
+                    <div class="invalid-feedback" id="emailError">
+                        Введите корректный email.
+                    </div>
+                </div>
+            </div>
+            <!-- Роль -->
+            <div class="mb-3">
+                <label for="role" class="form-label">Роль</label>
+                <div class="input-group input-group-lg has-validation">
+                    <span class="input-group-text"><i class="bi bi-person-badge"></i></span>
+                    <select class="form-select" id="role" name="role" required>
+                        <option value="" disabled selected>Выберите роль…</option>
+                        <option value="user">Пользователь</option>
+                        <option value="admin">Администратор</option>
+                    </select>
+                    <div class="invalid-feedback" id="roleError">
+                        Выберите роль.
+                    </div>
+                </div>
+            </div>
+            <!-- Пароль -->
+            <div class="mb-3">
+                <label for="password" class="form-label">Пароль</label>
+                <div class="input-group input-group-lg has-validation">
+                    <span class="input-group-text"><i class="bi bi-key"></i></span>
+                    <input type="password"
+                           class="form-control"
+                           id="password"
+                           name="password"
+                           placeholder="••••••••"
+                           minlength="8"
+                           required>
+                    <button class="btn btn-outline-secondary"
+                            type="button"
+                            id="togglePassword"
+                            aria-label="Показать пароль">
+                        <i class="bi bi-eye" id="toggleIcon"></i>
+                    </button>
+                    <div class="invalid-feedback" id="passwordError">
+                        Пароль должен содержать минимум 8 символов.
+                    </div>
+                </div>
+
+                <div class="progress mt-2" style="height:6px;" role="progressbar"
+                     aria-label="Надёжность пароля" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0">
+                    <div class="progress-bar" id="strengthBar" style="width:0%"></div>
+                </div>
+                <div class="form-text" id="strengthText">Минимум 8 символов, буквы и цифры</div>
+            </div>
+
+            <!-- Подтверждение пароля (только проверка на клиенте, на сервер не отправляется) -->
+            <div class="mb-3">
+                <label for="password2" class="form-label">Подтвердите пароль</label>
+                <div class="input-group input-group-lg has-validation">
+                    <span class="input-group-text"><i class="bi bi-shield-check"></i></span>
+                    <input type="password"
+                           class="form-control"
+                           id="password2"
+                           placeholder="••••••••"
+                           required>
+                    <button class="btn btn-outline-secondary"
+                            type="button"
+                            id="togglePassword2"
+                            aria-label="Показать пароль">
+                        <i class="bi bi-eye" id="toggleIcon2"></i>
+                    </button>
+                    <div class="invalid-feedback" id="password2Error">
+                        Пароли не совпадают.
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg w-100 mb-3" id="submitBtn">
+                <span class="spinner-border spinner-border-sm me-2 d-none"
+                      id="submitSpinner" role="status" aria-hidden="true"></span>
+                <i class="bi bi-person-plus me-1" id="submitIcon"></i>
+                <span id="submitText">Зарегистрироваться</span>
+            </button>
+        </form>
+
+        <div class="text-center">
+            <span class="text-body-secondary small">Уже есть аккаунт?</span>
+            <a href="#/login" class="text-decoration-none small">Войти</a>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+    const form = document.getElementById('registerForm');
+    if (!form) return; // DOM ещё не готов (скрипт пересоздаётся при рендере)
+
+    const nonFieldAlert = document.getElementById('nonFieldAlert');
+    const nonFieldText  = document.getElementById('nonFieldText');
+
+    function showNonField(msg) {
+        nonFieldText.textContent = msg;
+        nonFieldAlert.classList.remove('d-none');
+        nonFieldAlert.classList.add('d-flex');
+    }
+
+    const fields = {
+        first_name: document.getElementById('firstName'),
+        last_name:  document.getElementById('lastName'),
+        email:      document.getElementById('email'),
+        role:       document.getElementById('role'),        // ← новое
+        password:   document.getElementById('password'),
+        password2:  document.getElementById('password2'),
+    };
+
+    const errors = {
+        first_name: document.getElementById('firstNameError'),
+        last_name:  document.getElementById('lastNameError'),
+        email:      document.getElementById('emailError'),
+        role:       document.getElementById('roleError'),   // ← новое
+        password:   document.getElementById('passwordError'),
+        password2:  document.getElementById('password2Error'),
+    };
+
+    const names = Object.keys(fields);
+
+    const strengthBar  = document.getElementById('strengthBar');
+    const strengthText = document.getElementById('strengthText');
+
+    const submitBtn     = document.getElementById('submitBtn');
+    const submitSpinner = document.getElementById('submitSpinner');
+    const submitIcon    = document.getElementById('submitIcon');
+    const submitText    = document.getElementById('submitText');
+    const successAlert  = document.getElementById('successAlert');
+
+    // ----- Просмотр пароля -----
+    function setupToggle(btnId, iconId, input) {
+        const btn  = document.getElementById(btnId);
+        const icon = document.getElementById(iconId);
+        btn.addEventListener('click', () => {
+            const hidden = input.type === 'password';
+            input.type = hidden ? 'text' : 'password';
+            icon.classList.toggle('bi-eye', !hidden);
+            icon.classList.toggle('bi-eye-slash', hidden);
+            btn.setAttribute('aria-label', hidden ? 'Скрыть пароль' : 'Показать пароль');
+        });
+    }
+    setupToggle('togglePassword',  'toggleIcon',  fields.password);
+    setupToggle('togglePassword2', 'toggleIcon2', fields.password2);
+
+    // ----- Валидаторы -----
+    const validators = {
+        first_name() {
+            const v = fields.first_name.value.trim();
+            if (!v) return 'Введите имя.';
+            if (v.length > 255) return 'Максимум 255 символов.';
+            return '';
+        },
+        last_name() {
+            const v = fields.last_name.value.trim();
+            if (!v) return 'Введите фамилию.';
+            if (v.length > 255) return 'Максимум 255 символов.';
+            return '';
+        },
+        email() {
+            const v = fields.email.value.trim();
+            if (!v) return 'Введите email.';
+            if (v.length > 255) return 'Максимум 255 символов.';
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'Введите корректный email.';
+            return '';
+        },
+        role() {
+            const v = fields.role.value;
+            if (!v) return 'Выберите роль.';
+            if (v !== 'admin' && v !== 'user') return 'Недопустимая роль.';
+            return '';
+        },
+        password() {
+            const v = fields.password.value;
+            if (!v) return 'Введите пароль.';
+            if (v.length < 8) return 'Минимум 8 символов.';
+            if (!/[a-zA-Zа-яА-Я]/.test(v) || !/\d/.test(v)) return 'Пароль должен содержать буквы и цифры.';
+            return '';
+        },
+        password2() {
+            const v = fields.password2.value;
+            if (!v) return 'Подтвердите пароль.';
+            if (v !== fields.password.value) return 'Пароли не совпадают.';
+            return '';
+        }
+    };
+
+    function setFieldState(name, message) {
+        const input   = fields[name];
+        const errorEl = errors[name];
+        if (message) {
+            input.classList.add('is-invalid');
+            input.classList.remove('is-valid');
+            if (errorEl) errorEl.textContent = message;
+        } else {
+            input.classList.remove('is-invalid');
+            input.classList.add('is-valid');
+        }
+    }
+
+    function validateField(name) {
+        const msg = validators[name]();
+        setFieldState(name, msg);
+        return !msg;
+    }
+
+    // ----- Индикатор надёжности -----
+    function calcStrength(pwd) {
+        let score = 0;
+        if (pwd.length >= 8) score++;
+        if (pwd.length >= 12) score++;
+        if (/[a-zа-я]/.test(pwd) && /[A-ZА-Я]/.test(pwd)) score++;
+        if (/\d/.test(pwd)) score++;
+        if (/[^A-Za-zА-Яа-я0-9]/.test(pwd)) score++;
+        return Math.min(score, 4);
+    }
+
+    function updateStrength() {
+        const pwd = fields.password.value;
+        const score = calcStrength(pwd);
+        const colors = ['bg-danger', 'bg-danger', 'bg-warning', 'bg-info', 'bg-success'];
+        const labels = ['Очень слабый', 'Слабый', 'Средний', 'Хороший', 'Надёжный'];
+        const widths = [0, 25, 50, 75, 100];
+
+        strengthBar.className = 'progress-bar ' + colors[score];
+        strengthBar.style.width = widths[score] + '%';
+        strengthBar.parentElement.setAttribute('aria-valuenow', score);
+        strengthText.textContent = pwd
+            ? 'Надёжность: ' + labels[score]
+            : 'Минимум 8 символов, буквы и цифры';
+    }
+
+    // ----- Слушатели -----
+    names.forEach(name => {
+        const input = fields[name];
+        input.addEventListener('blur', () => validateField(name));
+        input.addEventListener('input', () => {
+            if (input.classList.contains('is-invalid')) validateField(name);
+        });
+    });
+
+    fields.password.addEventListener('input', () => {
+        updateStrength();
+        if (fields.password2.value) validateField('password2');
+    });
+
+    // ----- Отправка -----
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        nonFieldAlert.classList.add('d-none');
+        nonFieldAlert.classList.remove('d-flex');
+
+        const results = names.map(validateField);
+        const firstInvalid = names.find((n, i) => !results[i]);
+
+        if (firstInvalid) {
+            fields[firstInvalid].focus();
+            return;
+        }
+
+        submitBtn.disabled = true;
+        submitIcon.classList.add('d-none');
+        submitSpinner.classList.remove('d-none');
+        submitText.textContent = 'Создаём аккаунт…';
+
+        try {
+            // Отправляем ровно поля модели employees
+            await window.db_requests.adminReg({
+                first_name: fields.first_name.value.trim(),
+                last_name:  fields.last_name.value.trim(),
+                email:      fields.email.value.trim(),
+                role:       fields.role.value,  
+                password:   fields.password.value,
+            });
+            successAlert.classList.remove('d-none');
+            successAlert.classList.add('d-flex');
+            setTimeout(() => window.navigate('/'), 500);
+        } catch (error) {
+            showNonField(error.message || 'Не удалось зарегистрироваться');
+            submitBtn.disabled = false;
+            submitSpinner.classList.add('d-none');
+            submitIcon.classList.remove('d-none');
+            submitText.textContent = 'Зарегистрироваться';
+        }
+    });
+})();
+</script>
+{% endblock %}

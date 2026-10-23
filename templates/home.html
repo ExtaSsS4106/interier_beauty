@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row g-4">
+
+    {# Приветствие #}
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
+                    <div>
+                        <h1 class="h3 mb-1">Привет, {{ data.user.first_name or data.user.username }}</h1>
+                    </div>
+                    <a id="about" href="#/about">
+                        about
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    
+{% endblock %}

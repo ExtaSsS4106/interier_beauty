@@ -1,0 +1,32 @@
+{
+  "name": "interier_beauty",
+  "version": "1.0.0",
+  "main": "electron/main.js",
+  "scripts": {
+    "build": "node build/precompile.js && vite build",
+    "precompile": "node build/precompile.js",
+    "start": "npm run build && electron .",
+    "start_linux": "npm run build && electron --ozone-platform=x11 .",
+    "dev": "node build/precompile.js && vite --host 127.0.0.1 --port 4173",
+    "test": "node build/smoke-templates.js"
+  },
+  "dependencies": {
+    "@aparajita/capacitor-secure-storage": "^8.0.1",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@electron/rebuild": "^4.2.1",
+    "bcrypt": "^6.0.0",
+    "mysql2": "^3.24.6",
+    "nunjucks": "^3.2.4",
+    "pg": "^8.23.1",
+    "postgres": "^3.4.9",
+    "sequelize": "^6.37.8",
+    "sqlite3": "^6.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "electron": "^33.0.0",
+    "serve": "^14.2.6",
+    "vite": "^8.3.2"
+  }
+}

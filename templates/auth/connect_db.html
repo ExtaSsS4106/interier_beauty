@@ -1,0 +1,326 @@
+{% extends "auth/_layout.html" %}
+
+{% block title %}Авторизация — {{ appName }}{% endblock %}
+
+{% block content %}
+<div class="card shadow-lg border-0 rounded-4">
+    <div class="card-body p-4 p-md-5">
+        <div class="text-center mb-4">
+            <div class="d-inline-flex align-items-center justify-content-center bg-primary bg-opacity-10 text-primary rounded-circle mb-3"
+                style="width:64px;height:64px;">
+                <i class="bi bi-shield-lock fs-2"></i>
+            </div>
+            <h1 class="h3 fw-bold mb-2">Подключение к базе данных</h1>
+            <p class="text-body-secondary small mb-0">Введите свои данные для входа</p>
+        </div>
+        <!-- Общая ошибка -->
+        <div class="alert alert-danger d-none align-items-center gap-2 py-2 small"
+            id="nonFieldAlert" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <div id="nonFieldText"></div>
+        </div>
+        <!-- Успех -->
+        <div class="alert alert-success d-none align-items-center gap-2"
+            id="successAlert" role="alert">
+            <i class="bi bi-check-circle-fill"></i>
+            <div>Успешный вход! Перенаправляем…</div>
+        </div>
+        <form id="loginForm" novalidate>
+          <!-- Тип БД -->
+          <div class="mb-3">
+              <label for="dialect" class="form-label">Тип базы данных</label>
+              <div class="input-group input-group-lg has-validation">
+                  <span class="input-group-text"><i class="bi bi-database"></i></span>
+                  <select class="form-select" id="dialect" name="dialect" required>
+                      <option value="" selected disabled>Выберите тип БД</option>
+                      <option value="mysql">MySQL</option>
+                      <option value="postgres">PostgreSQL</option>
+                  </select>
+                  <div class="invalid-feedback" id="dialectError">
+                      Выберите тип базы данных.
+                  </div>
+              </div>
+          </div>
+            <div class="mb-3">
+                <label for="host" class="form-label">Хост сервера</label>
+                <div class="input-group input-group-lg has-validation">
+                    <span class="input-group-text"><i class="bi bi-person"></i></span>
+                    <input type="text"
+                          class="form-control"
+                          id="host"
+                          name="host"
+                          placeholder="localhost"
+                          autocomplete="off"
+                          required>
+                    <div class="invalid-feedback" id="hostError">
+                        Введите имя айпи хоста.
+                    </div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label for="port" class="form-label">Порт</label>
+                <div class="input-group input-group-lg has-validation">
+                    <span class="input-group-text"><i class="bi bi-person"></i></span>
+                    <input type="text" inputmode="numeric"
+                          class="form-control"
+                          id="port"
+                          name="port"
+                          placeholder="3306" autocomplete="off" required>
+                    <div class="invalid-feedback" id="portError">
+                        Введите имя порт хоста.
+                    </div>
+                </div>
+            </div>
+            <!-- Логин -->
+            <div class="mb-3">
+                <label for="username" class="form-label">Имя пользователя</label>
+                <div class="input-group input-group-lg has-validation">
+                    <span class="input-group-text"><i class="bi bi-person"></i></span>
+                    <input type="text"
+                          class="form-control"
+                          id="username"
+                          name="username"
+                          placeholder="username"
+                          autocomplete="username"
+                          required>
+                    <div class="invalid-feedback" id="usernameError">
+                        Введите имя пользователя.
+                    </div>
+                </div>
+            </div>
+            <!-- Пароль -->
+            <div class="mb-3">
+                <label for="password" class="form-label">Пароль</label>
+                <div class="input-group input-group-lg has-validation">
+                    <span class="input-group-text"><i class="bi bi-key"></i></span>
+                    <input type="password"
+                          class="form-control"
+                          id="password"
+                          name="password"
+                          placeholder="••••••••"
+                          minlength="6"
+                          autocomplete="current-password"
+                          required>
+                    <button class="btn btn-outline-secondary"
+                            type="button"
+                            id="togglePassword"
+                            aria-label="Показать пароль">
+                        <i class="bi bi-eye" id="toggleIcon"></i>
+                    </button>
+                    <div class="invalid-feedback" id="passwordError">
+                        Пароль должен содержать минимум 6 символов.
+                    </div>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg w-100 mb-3" id="submitBtn">
+                <span class="spinner-border spinner-border-sm me-2 d-none"
+                      id="submitSpinner" role="status" aria-hidden="true"></span>
+                <i class="bi bi-box-arrow-in-right me-1" id="submitIcon"></i>
+                <span id="submitText">Подключиться</span>
+            </button>
+        </form>
+        <div class="text-center">
+            <a id="sqlite_render" class="text-decoration-none small">Использовать SQLite</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+    const form = document.getElementById('loginForm');
+    if (!form) return; // DOM ещё не готов (скрипт пересоздаётся при рендере)
+
+    const $ = (id) => document.getElementById(id);
+
+    const toggleBtn     = $('togglePassword');
+    const toggleIcon    = $('toggleIcon');
+    const submitBtn     = $('submitBtn');
+    const submitSpinner = $('submitSpinner');
+    const submitIcon    = $('submitIcon');
+    const submitText    = $('submitText');
+    const successAlert  = $('successAlert');
+    const nonFieldAlert = $('nonFieldAlert');
+    const nonFieldText  = $('nonFieldText');
+
+    // Порты по умолчанию для каждого типа БД
+    const DEFAULT_PORTS = {
+        mysql: '3306',
+        mariadb: '3306',
+        postgres: '5432',
+        mssql: '1433',
+    };
+
+    // ----- Поля и их валидаторы -----
+    const fields = {
+        dialect: {
+            input: $('dialect'),
+            error: $('dialectError'),
+            validate: (v) => (v ? '' : 'Выберите тип базы данных.'),
+        },
+        host: {
+            input: $('host'),
+            error: $('hostError'),
+            validate: (v) => (v.trim() ? '' : 'Введите адрес хоста.'),
+        },
+        port: {
+            input: $('port'),
+            error: $('portError'),
+            validate: (v) => {
+                v = v.trim();
+                if (!v) return 'Введите порт.';
+                if (!/^\d+$/.test(v)) return 'Порт должен быть числом.';
+                const n = Number(v);
+                if (n < 1 || n > 65535) return 'Порт должен быть от 1 до 65535.';
+                return '';
+            },
+        },
+        username: {
+            input: $('username'),
+            error: $('usernameError'),
+            validate: (v) => (v.trim() ? '' : 'Введите имя пользователя.'),
+        },
+        password: {
+            input: $('password'),
+            error: $('passwordError'),
+            validate: (v) => (v ? '' : 'Введите пароль.'),
+        },
+    };
+
+    function setFieldState(input, errorEl, message) {
+        if (message) {
+            input.classList.add('is-invalid');
+            input.classList.remove('is-valid');
+            errorEl.textContent = message;
+        } else {
+            input.classList.remove('is-invalid');
+            input.classList.add('is-valid');
+        }
+    }
+
+    function validateField(name) {
+        const { input, error, validate } = fields[name];
+        const msg = validate(input.value);
+        setFieldState(input, error, msg);
+        return !msg;
+    }
+
+    // Обработчики blur / input / change для всех полей
+    Object.entries(fields).forEach(([name, { input }]) => {
+        const eventName = input.tagName === 'SELECT' ? 'change' : 'blur';
+        input.addEventListener(eventName, () => validateField(name));
+        input.addEventListener('input', () => {
+            if (input.classList.contains('is-invalid')) validateField(name);
+        });
+    });
+
+    // Порт — только цифры
+    fields.port.input.addEventListener('input', (e) => {
+        e.target.value = e.target.value.replace(/\D/g, '').slice(0, 5);
+    });
+
+    // ----- Смена типа БД: подставляем порт по умолчанию -----
+    let lastDefaultPort = '';
+    fields.dialect.input.addEventListener('change', () => {
+        const portInput = fields.port.input;
+        const newPort = DEFAULT_PORTS[fields.dialect.input.value] || '';
+
+        // Подставляем, только если порт пуст или пользователь его не менял
+        if (!portInput.value || portInput.value === lastDefaultPort) {
+            portInput.value = newPort;
+            if (newPort) validateField('port');
+        }
+        portInput.placeholder = newPort || '3306';
+        lastDefaultPort = newPort;
+    });
+
+    // ----- Показать/скрыть пароль -----
+    toggleBtn.addEventListener('click', () => {
+        const pwd = fields.password.input;
+        const hidden = pwd.type === 'password';
+        pwd.type = hidden ? 'text' : 'password';
+        toggleIcon.classList.toggle('bi-eye', !hidden);
+        toggleIcon.classList.toggle('bi-eye-slash', hidden);
+        toggleBtn.setAttribute('aria-label', hidden ? 'Скрыть пароль' : 'Показать пароль');
+    });
+
+    // ----- Общая ошибка -----
+    function showError(msg) {
+        nonFieldText.textContent = msg;
+        nonFieldAlert.classList.remove('d-none');
+        nonFieldAlert.classList.add('d-flex');
+    }
+
+    function hideError() {
+        nonFieldAlert.classList.add('d-none');
+        nonFieldAlert.classList.remove('d-flex');
+    }
+
+    function setLoading(loading) {
+        submitBtn.disabled = loading;
+        submitSpinner.classList.toggle('d-none', !loading);
+        submitIcon.classList.toggle('d-none', loading);
+        submitText.textContent = loading ? 'Подключаемся…' : 'Подключиться';
+    }
+    document.addEventListener('click', async (e) => {
+        if (e.target.matches('#sqlite_render')) {
+            e.preventDefault();
+            hideError();
+            
+            try{
+                setLoading(true);
+                await window.db_requests.login({
+                    dialect: "sqlite"
+                });
+                await window.db_requests.clear();
+                successAlert.classList.remove('d-none');
+                successAlert.classList.add('d-flex');
+                setTimeout(() => window.navigate('/admin_reg'), 400);
+            } catch (error) {
+                showError(error.message || 'Не удалось подключиться');
+                setLoading(false);
+            }
+        }
+    });
+    // ----- Отправка -----
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        hideError();
+
+        // Проверяем все поля и фокусируемся на первом с ошибкой
+        let firstInvalid = null;
+        Object.keys(fields).forEach((name) => {
+            if (!validateField(name) && !firstInvalid) {
+                firstInvalid = fields[name].input;
+            }
+        });
+        if (firstInvalid) {
+            firstInvalid.focus();
+            return;
+        }
+
+        setLoading(true);
+
+        const cfg = {
+            dialect:  fields.dialect.input.value,
+            host:     fields.host.input.value.trim(),
+            port:     Number(fields.port.input.value),
+            username: fields.username.input.value.trim(),
+            password: fields.password.input.value,
+        };
+
+        try {
+            await window.db_requests.login(cfg);
+            window.app.states.setDBmeta(cfg);        // сохраняем конфиг БД в хранилище
+            successAlert.classList.remove('d-none');
+            successAlert.classList.add('d-flex');
+            setTimeout(() => window.navigate('/admin_reg'), 400);
+        } catch (error) {
+            showError(error.message || 'Не удалось подключиться');
+            setLoading(false);
+        }
+    });
+})();
+</script>
+{% endblock %}

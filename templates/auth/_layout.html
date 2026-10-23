@@ -1,0 +1,11 @@
+{# Всё, что нужно странице входа/регистрации, уже подключено в www/index.html:
+   Bootstrap, иконки и стили грузятся там же, а рендер идёт внутрь #root. #}
+<div class="container">
+    <div class="row justify-content-center align-items-center min-vh-100 py-5">
+        <div class="col-12 col-sm-10 col-md-8 col-lg-10 col-xl-6">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+</div>
+
+{% block extra_js %}{% endblock %}

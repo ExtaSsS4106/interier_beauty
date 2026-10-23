@@ -1,0 +1,9 @@
+{
+  "appId": "com.example.nunjucksstarter",
+  "appName": "interier_beauty",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  }
+}
