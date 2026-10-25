@@ -10,6 +10,18 @@ export const routes = {
     '/admin_reg/': 'auth/admin_reg.html',
     '/about': 'about.html',
     '/about/': 'about.html',
+
+    // Задание №14 — управление записью в салон красоты
+    '/clients': 'clients.html',
+    '/clients/': 'clients.html',
+    '/masters': 'masters.html',
+    '/masters/': 'masters.html',
+    '/services': 'services.html',
+    '/services/': 'services.html',
+    '/appointments': 'appointments.html',
+    '/appointments/': 'appointments.html',
+    '/reports': 'reports.html',
+    '/reports/': 'reports.html',
 };
 
 export const titles = {
@@ -19,6 +31,11 @@ export const titles = {
     '/about': 'About',
     '/register_db': 'Настройка базы данных',
     '/admin_reg': 'Регистрация',
+    '/clients': 'Клиенты',
+    '/masters': 'Мастера',
+    '/services': 'Услуги',
+    '/appointments': 'Записи',
+    '/reports': 'Отчёты',
 };
 
 export const PUBLIC_ROUTES = [

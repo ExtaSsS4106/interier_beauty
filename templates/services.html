@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+    <div>
+        <h1 class="h4 mb-1">Справочник услуг</h1>
+        <div class="text-body-secondary small" id="servicesCount">Загружаем…</div>
+    </div>
+    <button type="button" class="btn btn-primary" id="addBtn">
+        <i class="bi bi-plus-lg me-1"></i>Добавить услугу
+    </button>
+</div>
+
+<div class="card border-0 shadow-sm rounded-4">
+    <div class="card-body p-3 p-md-4">
+
+        <!-- Поиск и фильтр по цене -->
+        <div class="row g-2 mb-3">
+            <div class="col-12 col-md-5">
+                <label class="form-label small text-body-secondary mb-1" for="search">Поиск по названию</label>
+                <input type="search" class="form-control" id="search" placeholder="Стрижка, маникюр…">
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label small text-body-secondary mb-1" for="priceMin">Цена от</label>
+                <input type="number" class="form-control" id="priceMin" min="0" step="1" placeholder="0">
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label small text-body-secondary mb-1" for="priceMax">Цена до</label>
+                <input type="number" class="form-control" id="priceMax" min="0" step="1" placeholder="10000">
+            </div>
+            <div class="col-12 col-md-1 d-flex align-items-end">
+                <button type="button" class="btn btn-outline-secondary w-100" id="resetFilters"
+                        aria-label="Сбросить фильтры"><i class="bi bi-arrow-counterclockwise"></i></button>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th scope="col">Услуга</th>
+                        <th scope="col" class="text-end">Цена</th>
+                        <th scope="col">Описание</th>
+                        <th scope="col" class="text-end">Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="rows"></tbody>
+            </table>
+        </div>
+        <div id="empty" class="text-body-secondary text-center py-4 d-none">Ничего не найдено</div>
+    </div>
+</div>
+
+<!-- Модалка добавления/редактирования услуги -->
+<div class="modal fade" id="serviceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4">
+            <form id="serviceForm" novalidate>
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fs-6 fw-semibold" id="serviceModalTitle">Новая услуга</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger d-none py-2 small mb-3" id="modalAlert" role="alert">
+                        <div id="modalError"></div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="title" class="form-label">Название</label>
+                        <input type="text" class="form-control" id="title" maxlength="255"
+                               placeholder="Женская стрижка" required>
+                        <div class="invalid-feedback" id="titleError">Введите название услуги.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="price" class="form-label">Цена, ₽</label>
+                        <input type="number" class="form-control" id="price" min="0" step="1"
+                               placeholder="1500" required>
+                        <div class="invalid-feedback" id="priceError">Цена — число не меньше нуля.</div>
+                    </div>
+
+                    <div class="mb-1">
+                        <label for="description" class="form-label">Описание</label>
+                        <textarea class="form-control" id="description" rows="3" maxlength="2000"
+                                  placeholder="Опционально"></textarea>
+                        <div class="invalid-feedback" id="descriptionError">Максимум 2000 символов.</div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary btn-sm" id="saveBtn">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+    const $ = (id) => document.getElementById(id);
+    if (!$('rows')) return;
+
+    const ui = window.ui;
+    const api = window.db_requests.services;
+
+    let rows = [];
+    let editingId = null;
+
+    const fields = {
+        title: {
+            input: $('title'), error: $('titleError'),
+            check: (v) => (v.trim() ? '' : 'Введите название услуги.'),
+        },
+        price: {
+            input: $('price'), error: $('priceError'),
+            check: (v) => {
+                const s = v.trim();
+                if (!s) return 'Введите цену.';
+                if (!/^\d+(\.\d{1,2})?$/.test(s)) return 'Цена — число не меньше нуля.';
+                if (Number(s) < 0) return 'Цена не может быть отрицательной.';
+                return '';
+            },
+        },
+        description: {
+            input: $('description'), error: $('descriptionError'),
+            check: (v) => (v.length <= 2000 ? '' : 'Максимум 2000 символов.'),
+        },
+    };
+    const validate = ui.bindValidation(fields);
+
+    async function load() {
+        try {
+            rows = await api.list();
+            render();
+        } catch (error) {
+            ui.toast(error.message || 'Не удалось загрузить услуги', 'danger');
+        }
+    }
+
+    function filtered() {
+        const q = $('search').value.trim().toLowerCase();
+        const min = $('priceMin').value === '' ? null : Number($('priceMin').value);
+        const max = $('priceMax').value === '' ? null : Number($('priceMax').value);
+
+        return rows
+            .filter((r) => {
+                if (q && !String(r.title).toLowerCase().includes(q)) return false;
+                if (min !== null && Number(r.price) < min) return false;
+                if (max !== null && Number(r.price) > max) return false;
+                return true;
+            })
+            .sort((a, b) => String(a.title).localeCompare(String(b.title), 'ru'));
+    }
+
+    function render() {
+        const list = filtered();
+        const total = rows.reduce((sum, r) => sum + Number(r.price || 0), 0);
+        $('servicesCount').textContent = `Услуг: ${rows.length} · суммарный прайс: ${ui.money(total)}`;
+        $('rows').innerHTML = list.map((r) => `
+            <tr>
+                <td class="fw-semibold">${ui.esc(r.title)}</td>
+                <td class="text-end text-nowrap">${ui.money(r.price)}</td>
+                <td class="text-body-secondary">${ui.esc(r.description || '—')}</td>
+                <td class="text-end text-nowrap">
+                    <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-edit="${r.id}"
+                            aria-label="Редактировать"><i class="bi bi-pencil"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" data-del="${r.id}"
+                            aria-label="Удалить"><i class="bi bi-trash"></i></button>
+                </td>
+            </tr>`).join('');
+        $('empty').classList.toggle('d-none', list.length > 0);
+    }
+
+    function openModal(row) {
+        editingId = row ? row.id : null;
+        $('serviceModalTitle').textContent = row ? 'Редактировать услугу' : 'Новая услуга';
+        $('title').value = row ? row.title : '';
+        $('price').value = row ? row.price : '';
+        $('description').value = row && row.description ? row.description : '';
+        Object.values(fields).forEach((f) => f.input.classList.remove('is-invalid', 'is-valid'));
+        showError('');
+        window.bootstrap.Modal.getOrCreateInstance($('serviceModal')).show();
+        setTimeout(() => $('title').focus(), 300);
+    }
+
+    function showError(message) {
+        $('modalError').textContent = message || '';
+        $('modalAlert').classList.toggle('d-none', !message);
+    }
+
+    $('addBtn').addEventListener('click', () => openModal(null));
+    ['search', 'priceMin', 'priceMax'].forEach((id) => $(id).addEventListener('input', render));
+    $('resetFilters').addEventListener('click', () => {
+        $('search').value = '';
+        $('priceMin').value = '';
+        $('priceMax').value = '';
+        render();
+    });
+
+    $('rows').addEventListener('click', async (event) => {
+        const editBtn = event.target.closest('[data-edit]');
+        if (editBtn) {
+            const row = rows.find((r) => String(r.id) === editBtn.dataset.edit);
+            if (row) openModal(row);
+            return;
+        }
+        const delBtn = event.target.closest('[data-del]');
+        if (!delBtn) return;
+        const row = rows.find((r) => String(r.id) === delBtn.dataset.del);
+        if (!row) return;
+
+        const confirmed = await ui.confirm({
+            title: 'Удалить услугу?',
+            text: `«${row.title}» будет удалена из справочника.`,
+        });
+        if (!confirmed) return;
+        try {
+            await api.remove(row.id);
+            ui.toast('Услуга удалена', 'success');
+            await load();
+        } catch (error) {
+            ui.toast(error.message || 'Не удалось удалить', 'danger');
+        }
+    });
+
+    $('serviceForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        showError('');
+        if (!validate()) return;
+
+        const payload = {
+            id: editingId,
+            title: fields.title.input.value.trim(),
+            price: fields.price.input.value.trim(),
+            description: fields.description.input.value.trim(),
+        };
+
+        try {
+            await ui.withBusy($('saveBtn'), async () => {
+                if (editingId) await api.update(payload);
+                else await api.create(payload);
+            }, 'Сохраняем…');
+
+            window.bootstrap.Modal.getOrCreateInstance($('serviceModal')).hide();
+            ui.toast(editingId ? 'Услуга обновлена' : 'Услуга добавлена', 'success');
+            await load();
+        } catch (error) {
+            showError(error.message || 'Не удалось сохранить');
+        }
+    });
+
+    load();
+})();
+</script>
+{% endblock %}

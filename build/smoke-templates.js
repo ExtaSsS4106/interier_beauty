@@ -1,6 +1,8 @@
 /* Smoke-тест шаблонов: рендерим их серверным nunjucks с теми же данными,
    что отдаёт www/app.js, и ловим ошибки фильтров/полей. */
 const path = require('path');
+const fs = require('fs');
+const vm = require('vm');
 const nunjucks = require('nunjucks');
 
 const env = nunjucks.configure(path.join(__dirname, '..', 'templates'), {
@@ -72,7 +74,17 @@ const cases = [
     ['profile.html', { ...base, title: 'Профиль' }],
     ['profile.html', { ...base, title: 'Профиль', user: emptyUser }],
     ['auth/login.html', { ...base, title: 'Вход', user: emptyUser }],
-    ['auth/reg.html', { ...base, title: 'Регистрация', user: emptyUser }],
+    ['auth/admin_reg.html', { ...base, title: 'Регистрация', user: emptyUser }],
+
+    // Задание №14 — страницы салона красоты
+    ['home.html', { ...base, path: '/' }],
+    ['clients.html', { ...base, title: 'Клиенты', path: '/clients' }],
+    ['masters.html', { ...base, title: 'Мастера', path: '/masters' }],
+    ['services.html', { ...base, title: 'Услуги', path: '/services' }],
+    ['appointments.html', { ...base, title: 'Записи', path: '/appointments' }],
+    ['reports.html', { ...base, title: 'Отчёты', path: '/reports' }],
+    ['navbar.html', { ...base, path: '/reports' }],
+    ['navbar.html', { ...base, path: '', user: emptyUser }],
 ];
 
 let failed = 0;
@@ -81,6 +93,17 @@ for (const [name, ctx] of cases) {
         const html = env.render(name, ctx);
         // stats.html намеренно пуст, когда задач нет — это норма
         if (html === null || html === undefined) throw new Error('undefined вместо строки');
+
+        // Дубликаты id ломают document.getElementById: привязка валидации
+        // молча уходит не на то поле (например, #email в navbar).
+        const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+        const duplicates = [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))];
+        if (duplicates.length) {
+            failed += 1;
+            console.log(`FAIL ${name}: повторяющиеся id — ${duplicates.join(', ')}`);
+            continue;
+        }
+
         console.log(`ok   ${name}  (${html.length} симв.)`);
     } catch (err) {
         failed += 1;
@@ -88,5 +111,30 @@ for (const [name, ctx] of cases) {
     }
 }
 
+/* Синтаксис inline-скриптов страниц: nunjucks проверяет только разметку,
+   а JavaScript внутри {% block extra_js %} выполняется уже в приложении. */
+function htmlFiles(dir) {
+    return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) return htmlFiles(full);
+        return entry.name.endsWith('.html') ? [full] : [];
+    });
+}
+
+let scriptErrors = 0;
+for (const file of htmlFiles(path.join(__dirname, '..', 'templates'))) {
+    const source = fs.readFileSync(file, 'utf8');
+    const scripts = [...source.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+    for (const [, code] of scripts) {
+        try {
+            new vm.Script(code, { filename: file });
+        } catch (err) {
+            scriptErrors += 1;
+            console.log(`FAIL script ${path.relative(path.join(__dirname, '..'), file)}: ${err.message}`);
+        }
+    }
+}
+console.log(scriptErrors ? `\n${scriptErrors} ошибок в inline-скриптах` : 'Inline-скрипты синтаксически корректны');
+
 console.log(failed ? `\n${failed} ошибок` : '\nВсе шаблоны рендерятся');
-process.exit(failed ? 1 : 0);
+process.exit(failed || scriptErrors ? 1 : 0);

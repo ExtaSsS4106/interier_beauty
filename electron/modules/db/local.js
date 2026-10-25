@@ -34,7 +34,7 @@ async function checkConnection() {
         try { await sequelize.authenticate(); return true; } catch { return false; }
     }
     // ещё не открыто — проверить, что файл вообще есть
-    if (!fs.existsSync(DB_PATH())) return false;
+    if (!fs.existsSync(dbFile())) return false;
 
     // файл есть — попробуем открыть (только здесь, не в шаблоне)
     try {

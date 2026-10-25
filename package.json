@@ -8,7 +8,8 @@
     "start": "npm run build && electron .",
     "start_linux": "npm run build && electron --ozone-platform=x11 .",
     "dev": "node build/precompile.js && vite --host 127.0.0.1 --port 4173",
-    "test": "node build/smoke-templates.js"
+    "test": "node build/smoke-templates.js && node build/smoke-booking.js && node build/smoke-db.js && node build/smoke-ipc.js",
+    "test:e2e": "npm run build && electron --no-sandbox build/electron-e2e.js"
   },
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "^8.0.1",

@@ -75,6 +75,7 @@ export async function render(force = false, extraData = null) {
     
 
     data.title = titles[path] || data.appName;
+    data.path = path;
     document.title = `${data.title} — ${data.appName}`;
 
     const root = document.getElementById('root');

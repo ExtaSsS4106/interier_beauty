@@ -3,21 +3,156 @@
 {% block content %}
 <div class="row g-4">
 
-    {# Приветствие #}
+    {# Приветствие и быстрые действия #}
     <div class="col-12">
-        <div class="card border-0 shadow-sm">
+        <div class="card border-0 shadow-sm rounded-4">
             <div class="card-body p-4">
                 <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
                     <div>
-                        <h1 class="h3 mb-1">Привет, {{ data.user.first_name or data.user.username }}</h1>
+                        <h1 class="h3 mb-1">Здравствуйте, {{ data.user.first_name or data.user.username or 'гость' }}</h1>
+                        <div class="text-body-secondary small mb-0">
+                            Салон красоты · управление записью, клиентами и выручкой
+                        </div>
                     </div>
-                    <a id="about" href="#/about">
-                        about
-                    </a>
+                    <div class="d-flex flex-wrap gap-2">
+                        <a class="btn btn-primary" href="#/appointments">
+                            <i class="bi bi-calendar-plus me-1"></i>Записать клиента
+                        </a>
+                        <a class="btn btn-outline-secondary" href="#/reports">
+                            <i class="bi bi-bar-chart-line me-1"></i>Отчёт
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    
+    {# Сводка по базе #}
+    <div class="col-6 col-lg-3">
+        <div class="card border-0 shadow-sm rounded-4 h-100">
+            <div class="card-body p-3">
+                <div class="d-flex align-items-center gap-2 text-body-secondary small mb-1">
+                    <i class="bi bi-people"></i>Клиенты
+                </div>
+                <div class="h4 mb-0" id="statClients">—</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card border-0 shadow-sm rounded-4 h-100">
+            <div class="card-body p-3">
+                <div class="d-flex align-items-center gap-2 text-body-secondary small mb-1">
+                    <i class="bi bi-person-badge"></i>Мастера
+                </div>
+                <div class="h4 mb-0" id="statMasters">—</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card border-0 shadow-sm rounded-4 h-100">
+            <div class="card-body p-3">
+                <div class="d-flex align-items-center gap-2 text-body-secondary small mb-1">
+                    <i class="bi bi-scissors"></i>Услуги
+                </div>
+                <div class="h4 mb-0" id="statServices">—</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card border-0 shadow-sm rounded-4 h-100">
+            <div class="card-body p-3">
+                <div class="d-flex align-items-center gap-2 text-body-secondary small mb-1">
+                    <i class="bi bi-cash-stack"></i>Выручка за месяц
+                </div>
+                <div class="h4 mb-0 text-success" id="statRevenue">—</div>
+            </div>
+        </div>
+    </div>
+
+    {# Расписание на сегодня #}
+    <div class="col-12">
+        <div class="card border-0 shadow-sm rounded-4">
+            <div class="card-body p-3 p-md-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h2 class="h6 text-body-secondary text-uppercase mb-0">Записи на сегодня</h2>
+                    <span class="badge text-bg-light rounded-pill" id="todayCount">—</span>
+                </div>
+                <div id="todayEmpty" class="text-body-secondary small d-none">
+                    На сегодня записей нет.
+                </div>
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col">Время</th>
+                                <th scope="col">Клиент</th>
+                                <th scope="col">Мастер</th>
+                                <th scope="col">Услуга</th>
+                                <th scope="col" class="text-end">Стоимость</th>
+                                <th scope="col">Статус</th>
+                            </tr>
+                        </thead>
+                        <tbody id="todayRows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+    const $ = (id) => document.getElementById(id);
+    if (!$('statClients')) return;
+
+    const ui = window.ui;
+    const STATUS_LABELS = { new: 'Записана', done: 'Оказана', cancelled: 'Отменена' };
+    const STATUS_BADGES = { new: 'text-bg-primary', done: 'text-bg-success', cancelled: 'text-bg-secondary' };
+
+    async function load() {
+        try {
+            const dash = await window.db_requests.reports.dashboard();
+
+            $('statClients').textContent = ui.num(dash.clients);
+            $('statMasters').textContent = ui.num(dash.employees);
+            $('statServices').textContent = ui.num(dash.services);
+            $('statRevenue').textContent = ui.money(dash.month.revenue);
+
+            const list = dash.todayAppointments || [];
+            $('todayCount').textContent = `${list.length} ${plural(list.length, 'запись', 'записи', 'записей')}`;
+            $('todayEmpty').classList.toggle('d-none', list.length > 0);
+            $('todayRows').innerHTML = list.map((r) => {
+                const client = r.client || {};
+                const master = r.employee || {};
+                const service = r.service || {};
+                const status = STATUS_LABELS[r.status] ? r.status : 'new';
+                return `
+                <tr>
+                    <td class="fw-semibold text-nowrap">${ui.fmtTime(r.time)}</td>
+                    <td>${ui.esc(client.last_name || '')} ${ui.esc(client.first_name || '')}</td>
+                    <td class="text-nowrap">${ui.esc(master.last_name || '')} ${ui.esc(master.first_name || '')}</td>
+                    <td>${ui.esc(service.title || '—')}</td>
+                    <td class="text-end text-nowrap">${ui.money(service.price || 0)}</td>
+                    <td><span class="badge rounded-pill ${STATUS_BADGES[status]}">${STATUS_LABELS[status]}</span></td>
+                </tr>`;
+            }).join('');
+        } catch (error) {
+            ui.toast(error.message || 'Не удалось загрузить сводку', 'danger');
+        }
+    }
+
+    function plural(n, one, few, many) {
+        const mod10 = n % 10;
+        const mod100 = n % 100;
+        if (mod10 === 1 && mod100 !== 11) return one;
+        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+        return many;
+    }
+
+    load();
+})();
+</script>
 {% endblock %}
