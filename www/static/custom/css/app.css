@@ -161,3 +161,133 @@
     transform: rotate(180deg);
     transition: transform .2s ease;
 }
+
+
+/* ============================================================
+   Левая выдвижная шторка с меню
+   ============================================================ */
+
+.app-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1045;
+
+    width: 272px;
+    display: flex;
+    flex-direction: column;
+
+    background-color: var(--bs-body-bg);
+    border-right: 1px solid var(--bs-border-color);
+
+    transform: translateX(-100%);
+    transition: transform .25s ease;
+    visibility: hidden;
+}
+
+html.sidebar-open .app-sidebar {
+    transform: translateX(0);
+    visibility: visible;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .35);
+}
+
+.sidebar-brand-icon {
+    width: 32px;
+    height: 32px;
+}
+
+.app-sidebar .nav-link {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    padding: .55rem .8rem;
+    border-radius: .65rem;
+    color: var(--bs-body-color);
+    transition: background-color .15s ease, color .15s ease;
+}
+
+.app-sidebar .nav-link:hover {
+    background-color: var(--bs-tertiary-bg);
+}
+
+.app-sidebar .nav-link.active {
+    background-color: var(--bs-primary-bg-subtle, rgba(13, 110, 253, .15));
+    color: var(--bs-primary);
+    font-weight: 600;
+}
+
+.sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1040;
+    background: rgba(15, 17, 21, .55);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .2s ease, visibility .2s ease;
+}
+
+html.sidebar-open .sidebar-backdrop {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Контент: на десктопе сдвигается под открытую шторку */
+.app-content {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.topbar {
+    z-index: 1020;
+}
+
+@media (min-width: 992px) {
+    html.sidebar-open .app-content {
+        margin-left: 272px;
+    }
+
+    /* На десктопе контент просто сдвигается — затемнение не мешает */
+    html.sidebar-open .sidebar-backdrop {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+    }
+}
+
+
+/* ============================================================
+   Шапки таблиц — акцентный цвет вместо белого
+   ============================================================ */
+
+.table thead th {
+    background-color: var(--bs-primary);
+    color: #fff;
+    border-bottom: none;
+
+    font-size: .72rem;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.table thead th:first-child {
+    border-top-left-radius: .5rem;
+}
+
+.table thead th:last-child {
+    border-top-right-radius: .5rem;
+}
+
+.table thead th a,
+.table thead th .sort-label {
+    color: inherit;
+    text-decoration: none;
+}
+
+/* Читаемость на больших таблицах: строка не «смазывается» */
+.table > tbody > tr > td {
+    vertical-align: middle;
+}

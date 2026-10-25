@@ -36,6 +36,23 @@ export function set_authenticated(value){
     authenticated = value;
 }
 
+/**
+ * Текущий вошедший сотрудник: профиль + права (permissions из main-процесса).
+ * Шаблоны показывают/прячут кнопки и пункты меню по data.user.permissions.*,
+ * а настоящая проверка выполняется в main-процессе.
+ */
+export function setUser(user) {
+    const value = user && typeof user === 'object' ? { ...user } : {};
+    if (!value.permissions || typeof value.permissions !== 'object') {
+        value.permissions = {};
+    }
+    data.user = value;
+}
+
+export function clearUser() {
+    data.user = {};
+}
+
 export let tokens = null;
 export function setTokens(value){
     tokens = value;

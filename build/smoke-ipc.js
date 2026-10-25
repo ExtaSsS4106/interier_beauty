@@ -36,6 +36,8 @@ const handlers = new Set([...mainSrc.matchAll(/ipcMain\.handle\('([^']+)'/g)].ma
 
 // 2. Каналы, которые вызывает preload.js (включая шаблоны `${prefix}:create`)
 const invoked = new Set([...preloadSrc.matchAll(/ipcRenderer\.invoke\('([^']+)'/g)].map((m) => m[1]));
+// прямые вызовы через хелпер call('канал', ...) — например admin:register, session:logout
+for (const m of preloadSrc.matchAll(/\bcall\('([^']+)'/g)) invoked.add(m[1]);
 const crudPrefixes = [...preloadSrc.matchAll(/crud\('([^']+)'/g)].map((m) => m[1]);
 const crudSuffixes = [...preloadSrc.matchAll(/call\(`\$\{prefix\}:([a-z]+)`/g)].map((m) => m[1]);
 for (const prefix of crudPrefixes) {
@@ -57,7 +59,7 @@ check('contextBridge отдаёт db_requests и authStorage', () => {
 check('страницы используют только объявленные методы db_requests', () => {
     const defined = new Set([
         'login', 'logout', 'checkConn', 'getClients', 'adminReg', 'getEmployees',
-        'employeesLogin', 'load', 'save', 'clear',
+        'employeesLogin', 'sessionLogout', 'load', 'save', 'clear',
         // crud-объекты
         ...crudPrefixes.flatMap((p) => crudSuffixes.map((s) => `${p}.${s === 'delete' ? 'remove' : s}`)),
         'reports.summary', 'reports.dashboard',
@@ -81,6 +83,7 @@ check('страницы используют только объявленные
 
 check('в main.js зарегистрированы обработчики задания №14', () => {
     const required = [
+        'admin:register', 'employees:login', 'session:logout',
         'clients:list', 'clients:create', 'clients:update', 'clients:delete',
         'employees:list', 'employees:create', 'employees:update', 'employees:delete',
         'services:list', 'services:create', 'services:update', 'services:delete',
@@ -89,6 +92,29 @@ check('в main.js зарегистрированы обработчики зад
     ];
     const missing = required.filter((channel) => !handlers.has(channel));
     assert.strictEqual(missing.length, 0, `нет обработчика: ${missing.join(', ')}`);
+});
+
+check('CRUD-каналы обёрнуты в guard с проверкой прав роли', () => {
+    // guard('<раздел>.<действие>', async ...) — иначе права проверяются только в UI
+    const guarded = new Set([...mainSrc.matchAll(/ipcMain\.handle\('([^']+)', guard\('([^']+)'/g)]
+        .map((m) => `${m[1]} => ${m[2]}`));
+    const required = [
+        'clients:list => clients.read', 'clients:create => clients.write',
+        'employees:list => employees.read', 'employees:create => employees.write',
+        'services:list => services.read', 'services:create => services.write',
+        'appointments:list => appointments.read', 'appointments:create => appointments.write',
+        'appointments:update => appointments.status',
+        'reports:summary => reports.read', 'reports:dashboard => session',
+    ];
+    const missing = required.filter((item) => !guarded.has(item));
+    assert.strictEqual(missing.length, 0, `без проверки прав: ${missing.join(', ')}`);
+});
+
+check('в main.js есть сессия и проверка «Недостаточно прав»', () => {
+    assert.ok(mainSrc.includes('let session = null'), 'нет сессии в main-процессе');
+    assert.ok(mainSrc.includes('function requirePermission'), 'нет requirePermission');
+    assert.ok(mainSrc.includes('startSession('), 'нет входа в сессию');
+    assert.ok(mainSrc.includes('Недостаточно прав'), 'нет сообщения об отказе');
 });
 
 check('все маршруты из routing.js ссылаются на существующие шаблоны', () => {

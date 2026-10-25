@@ -22,6 +22,28 @@ const user = {
 
 const emptyUser = { initial: '?', initials: '?', date_joined_label: '' };
 
+// Права ролей: рендерим шаблоны под каждой ролью, чтобы проверить ветки {% if %}
+const PERMISSION_KEYS = [
+    'clientsRead', 'clientsWrite',
+    'employeesRead', 'employeesWrite',
+    'servicesRead', 'servicesWrite',
+    'appointmentsRead', 'appointmentsWrite', 'appointmentsStatus',
+    'reportsRead',
+];
+
+function roleUser(role, allowed = PERMISSION_KEYS) {
+    const permissions = { role };
+    for (const key of PERMISSION_KEYS) permissions[key] = allowed.includes(key);
+    return { ...user, first_name: role, permissions };
+}
+
+const adminUser = roleUser('admin');
+const managerUser = roleUser('manager', [
+    'clientsRead', 'clientsWrite', 'employeesRead', 'servicesRead',
+    'appointmentsRead', 'appointmentsWrite', 'appointmentsStatus', 'reportsRead',
+]);
+const masterUser = roleUser('master', ['appointmentsRead', 'appointmentsStatus']);
+
 const base = {
     appName: 'Tasker',
     title: 'Задачи',
@@ -83,14 +105,39 @@ const cases = [
     ['services.html', { ...base, title: 'Услуги', path: '/services' }],
     ['appointments.html', { ...base, title: 'Записи', path: '/appointments' }],
     ['reports.html', { ...base, title: 'Отчёты', path: '/reports' }],
-    ['navbar.html', { ...base, path: '/reports' }],
-    ['navbar.html', { ...base, path: '', user: emptyUser }],
+
+    // Шторка (меню) вместо шапки
+    ['sidebar.html', { ...base, path: '/reports' }],
+    ['sidebar.html', { ...base, path: '', user: emptyUser }],
+    ['topbar.html', { ...base, path: '/reports' }],
+    ['topbar.html', { ...base, path: '', user: emptyUser }],
+
+    // Разделение прав: админ видит всё, менеджер — без сотрудников/услуг,
+    // мастер — только свои заказы
+    ['sidebar.html', { ...base, path: '/', user: adminUser }],
+    ['sidebar.html', { ...base, path: '/', user: managerUser }],
+    ['sidebar.html', { ...base, path: '/', user: masterUser }],
+    ['home.html', { ...base, path: '/', user: adminUser }],
+    ['home.html', { ...base, path: '/', user: managerUser }],
+    ['home.html', { ...base, path: '/', user: masterUser }],
+    ['clients.html', { ...base, title: 'Клиенты', path: '/clients', user: adminUser }],
+    ['clients.html', { ...base, title: 'Клиенты', path: '/clients', user: masterUser }],
+    ['masters.html', { ...base, title: 'Мастера', path: '/masters', user: adminUser }],
+    ['masters.html', { ...base, title: 'Мастера', path: '/masters', user: managerUser }],
+    ['services.html', { ...base, title: 'Услуги', path: '/services', user: managerUser }],
+    ['appointments.html', { ...base, title: 'Записи', path: '/appointments', user: adminUser }],
+    ['appointments.html', { ...base, title: 'Записи', path: '/appointments', user: managerUser }],
+    ['appointments.html', { ...base, title: 'Записи', path: '/appointments', user: masterUser }],
+    ['reports.html', { ...base, title: 'Отчёты', path: '/reports', user: managerUser }],
+    ['reports.html', { ...base, title: 'Отчёты', path: '/reports', user: masterUser }],
 ];
 
 let failed = 0;
 for (const [name, ctx] of cases) {
     try {
-        const html = env.render(name, ctx);
+        // app.js отдаёт шаблонам {data: …}, поэтому оборачиваем контекст так же:
+        // иначе data.user/data.path молча undefined и ветки прав не проверяются
+        const html = env.render(name, { ...ctx, data: ctx });
         // stats.html намеренно пуст, когда задач нет — это норма
         if (html === null || html === undefined) throw new Error('undefined вместо строки');
 

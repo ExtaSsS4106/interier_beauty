@@ -6,9 +6,11 @@
         <h1 class="h4 mb-1">Записи клиентов</h1>
         <div class="text-body-secondary small" id="apptCount">Загружаем…</div>
     </div>
+    {% if data.user.permissions.appointmentsWrite %}
     <button type="button" class="btn btn-primary" id="addBtn">
         <i class="bi bi-calendar-plus me-1"></i>Записать клиента
     </button>
+    {% endif %}
 </div>
 
 <div class="card border-0 shadow-sm rounded-4">
@@ -24,17 +26,20 @@
                 <label class="form-label small text-body-secondary mb-1" for="filterDate">Дата</label>
                 <input type="date" class="form-control" id="filterDate">
             </div>
+            {% if data.user.permissions.employeesRead %}
             <div class="col-6 col-md-2">
                 <label class="form-label small text-body-secondary mb-1" for="filterMaster">Мастер</label>
                 <select class="form-select" id="filterMaster">
                     <option value="">Все мастера</option>
                 </select>
             </div>
+            {% endif %}
             <div class="col-6 col-md-2">
                 <label class="form-label small text-body-secondary mb-1" for="filterStatus">Статус</label>
                 <select class="form-select" id="filterStatus">
                     <option value="">Все статусы</option>
                     <option value="new">Записана</option>
+                    <option value="accepted">Принята</option>
                     <option value="done">Оказана</option>
                     <option value="cancelled">Отменена</option>
                 </select>
@@ -47,7 +52,7 @@
 
         <div class="table-responsive">
             <table class="table align-middle mb-0">
-                <thead class="table-light">
+                <thead>
                     <tr>
                         <th scope="col">Дата</th>
                         <th scope="col">Время</th>
@@ -56,7 +61,9 @@
                         <th scope="col">Услуга</th>
                         <th scope="col" class="text-end">Стоимость</th>
                         <th scope="col">Статус</th>
+                        {% if data.user.permissions.appointmentsWrite %}
                         <th scope="col" class="text-end">Действия</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody id="rows"></tbody>
@@ -130,6 +137,7 @@
                         <label for="status" class="form-label">Статус</label>
                         <select class="form-select" id="status">
                             <option value="new">Записана</option>
+                            <option value="accepted">Принята</option>
                             <option value="done">Оказана</option>
                             <option value="cancelled">Отменена</option>
                         </select>
@@ -158,7 +166,26 @@
 
     const ui = window.ui;
     const api = window.db_requests.appointments;
-    const STATUS_LABELS = { new: 'Записана', done: 'Оказана', cancelled: 'Отменена' };
+    const perm = (window.app.states.data.user || {}).permissions || {};
+    const STATUS_LABELS = {
+        new: 'Записана',
+        accepted: 'Принята',
+        done: 'Оказана',
+        cancelled: 'Отменена',
+    };
+    const STATUS_VALUES = Object.keys(STATUS_LABELS);
+
+    // Записи видят все, создавать и править может админ/менеджер,
+    // мастер — только принимать и отмечать оказанными
+    if (!perm.appointmentsRead) {
+        ui.toast('Раздел «Записи» недоступен для вашей роли', 'warning');
+        window.navigate('/');
+        return;
+    }
+    const canWrite = Boolean(perm.appointmentsWrite);
+    const canStatus = Boolean(perm.appointmentsStatus);
+    // Справочники нужны только для формы записи: мастеру их читать не зачем
+    const needRefs = canWrite && Boolean(perm.clientsRead && perm.employeesRead && perm.servicesRead);
 
     let rows = [];        // все записи (с вложенными client/employee/service)
     let clients = [];
@@ -190,7 +217,7 @@
         },
         status: {
             input: $('status'), error: $('statusError'),
-            check: (v) => (['new', 'done', 'cancelled'].includes(v) ? '' : 'Недопустимый статус.'),
+            check: (v) => (STATUS_VALUES.includes(v) ? '' : 'Недопустимый статус.'),
         },
     };
     const validate = ui.bindValidation(fields);
@@ -198,16 +225,23 @@
     /* -------------------------- Загрузка ---------------------------- */
     async function load() {
         try {
-            const [appts, clientList, masterList, serviceList] = await Promise.all([
-                api.list(),
-                window.db_requests.clients.list(),
-                window.db_requests.employees.list(),
-                window.db_requests.services.list(),
-            ]);
-            rows = appts;
-            clients = clientList;
-            masters = masterList;
-            services = serviceList;
+            if (needRefs) {
+                const [appts, clientList, masterList, serviceList] = await Promise.all([
+                    api.list(),
+                    window.db_requests.clients.list(),
+                    window.db_requests.employees.list(),
+                    window.db_requests.services.list(),
+                ]);
+                rows = appts;
+                clients = clientList;
+                masters = masterList;
+                services = serviceList;
+            } else {
+                // мастеру (или роли без права записи) справочники не нужны —
+                // запросы к ним всё равно заблокированы проверкой прав
+                rows = await api.list();
+                if (perm.employeesRead) masters = await window.db_requests.employees.list();
+            }
             fillSelects();
             render();
         } catch (error) {
@@ -220,35 +254,40 @@
             (r) => `<option value="${r.id}">${ui.esc(label(r))}</option>`,
         ).join('');
 
-        $('client').innerHTML = '<option value="">— выберите клиента —</option>'
-            + options(clients, (r) => `${r.last_name} ${r.first_name} · ${r.number}`);
-        $('employee').innerHTML = '<option value="">— выберите мастера —</option>'
-            + options(masters, (r) => `${r.last_name} ${r.first_name}`);
-        $('service').innerHTML = '<option value="">— выберите услугу —</option>'
-            + options(services, (r) => `${r.title} — ${ui.money(r.price)}`);
+        if (needRefs) {
+            $('client').innerHTML = '<option value="">— выберите клиента —</option>'
+                + options(clients, (r) => `${r.last_name} ${r.first_name} · ${r.number}`);
+            $('employee').innerHTML = '<option value="">— выберите мастера —</option>'
+                + options(masters, (r) => `${r.last_name} ${r.first_name}`);
+            $('service').innerHTML = '<option value="">— выберите услугу —</option>'
+                + options(services, (r) => `${r.title} — ${ui.money(r.price)}`);
 
-        const current = $('filterMaster').value;
-        $('filterMaster').innerHTML = '<option value="">Все мастера</option>'
-            + options(masters, (r) => `${r.last_name} ${r.first_name}`);
-        $('filterMaster').value = current;
-
-        // сохраняем выбранное значение формы при перезагрузке
-        if (editingId) {
-            const row = rows.find((r) => r.id === editingId);
-            if (row) {
-                $('client').value = row.client_id;
-                $('employee').value = row.employee_id;
-                $('service').value = row.service_id;
+            // сохраняем выбранное значение формы при перезагрузке
+            if (editingId) {
+                const row = rows.find((r) => r.id === editingId);
+                if (row) {
+                    $('client').value = row.client_id;
+                    $('employee').value = row.employee_id;
+                    $('service').value = row.service_id;
+                }
             }
+            updateCost();
         }
-        updateCost();
+
+        const filterMaster = $('filterMaster');
+        if (filterMaster && masters.length) {
+            const current = filterMaster.value;
+            filterMaster.innerHTML = '<option value="">Все мастера</option>'
+                + options(masters, (r) => `${r.last_name} ${r.first_name}`);
+            filterMaster.value = current;
+        }
     }
 
     /* ------------------------- Фильтры/таблица ------------------------ */
     function filtered() {
         const q = $('search').value.trim().toLowerCase();
         const date = $('filterDate').value;
-        const master = $('filterMaster').value;
+        const master = $('filterMaster') ? $('filterMaster').value : '';
         const status = $('filterStatus').value;
 
         const list = rows.filter((r) => {
@@ -289,18 +328,20 @@
                 <td>${ui.esc(service.title || '—')}</td>
                 <td class="text-end text-nowrap">${ui.money(service.price || 0)}</td>
                 <td>
+                    ${canStatus ? `
                     <select class="form-select form-select-sm w-auto" data-status="${r.id}"
                             aria-label="Статус записи">
                         ${Object.entries(STATUS_LABELS).map(([value, label]) => `
                             <option value="${value}"${value === status ? ' selected' : ''}>${label}</option>`).join('')}
-                    </select>
+                    </select>` : `<span class="badge text-bg-secondary rounded-pill">${STATUS_LABELS[status]}</span>`}
                 </td>
+                ${canWrite ? `
                 <td class="text-end text-nowrap">
                     <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-edit="${r.id}"
                             aria-label="Редактировать"><i class="bi bi-pencil"></i></button>
                     <button type="button" class="btn btn-sm btn-outline-danger" data-del="${r.id}"
                             aria-label="Удалить"><i class="bi bi-trash"></i></button>
-                </td>
+                </td>` : ''}
             </tr>`;
         }).join('');
 
@@ -366,13 +407,13 @@
         $('modalAlert').classList.toggle('d-none', !message);
     }
 
-    $('addBtn').addEventListener('click', () => openModal(null));
+    $('addBtn')?.addEventListener('click', () => openModal(null));
     ['search', 'filterDate'].forEach((id) => $(id).addEventListener('input', render));
-    ['filterMaster', 'filterStatus'].forEach((id) => $(id).addEventListener('change', render));
+    ['filterMaster', 'filterStatus'].forEach((id) => $(id)?.addEventListener('change', render));
     $('resetFilters').addEventListener('click', () => {
         $('search').value = '';
         $('filterDate').value = '';
-        $('filterMaster').value = '';
+        if ($('filterMaster')) $('filterMaster').value = '';
         $('filterStatus').value = '';
         render();
     });

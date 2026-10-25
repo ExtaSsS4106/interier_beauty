@@ -69,8 +69,9 @@
                     <span class="input-group-text"><i class="bi bi-person-badge"></i></span>
                     <select class="form-select" id="role" name="role" required>
                         <option value="" disabled selected>Выберите роль…</option>
-                        <option value="user">Пользователь</option>
                         <option value="admin">Администратор</option>
+                        <option value="manager">Менеджер</option>
+                        <option value="master">Мастер</option>
                     </select>
                     <div class="invalid-feedback" id="roleError">
                         Выберите роль.
@@ -229,7 +230,7 @@
         role() {
             const v = fields.role.value;
             if (!v) return 'Выберите роль.';
-            if (v !== 'admin' && v !== 'user') return 'Недопустимая роль.';
+            if (!['admin', 'manager', 'master'].includes(v)) return 'Недопустимая роль.';
             return '';
         },
         password() {
@@ -327,13 +328,15 @@
 
         try {
             // Отправляем ровно поля модели employees
-            await window.db_requests.adminReg({
+            const user = await window.db_requests.adminReg({
                 first_name: fields.first_name.value.trim(),
                 last_name:  fields.last_name.value.trim(),
                 email:      fields.email.value.trim(),
                 role:       fields.role.value,  
                 password:   fields.password.value,
             });
+            // Регистрация первого сотрудника сразу открывает сессию с правами
+            window.app.states.setUser(user);
             successAlert.classList.remove('d-none');
             successAlert.classList.add('d-flex');
             setTimeout(() => window.navigate('/'), 500);

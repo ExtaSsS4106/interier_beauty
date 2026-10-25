@@ -1,5 +1,14 @@
-{% include "navbar.html" %}
-<main class="container py-4">
-    {% block content %}{% endblock %}
-</main>
+{# Оболочка авторизованных разделов: левая выдвижная шторка + контент. #}
+<div class="app-shell">
+    {% include "sidebar.html" %}
+
+    <div class="app-content">
+        {% include "topbar.html" %}
+
+        <main class="container py-4">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</div>
+
 {% block extra_js %}{% endblock %}

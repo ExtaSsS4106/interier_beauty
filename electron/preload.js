@@ -36,7 +36,8 @@ contextBridge.exposeInMainWorld('db_requests', {
     logout: () => ipcRenderer.invoke('db:logout'),
     checkConn: (params) => ipcRenderer.invoke('db:checkConn', params),
     getClients: () => ipcRenderer.invoke('clients:getAll'),
-    adminReg: (params) => ipcRenderer.invoke('admin:register', params),
+    adminReg: (params) => call('admin:register', params),
+    sessionLogout: () => call('session:logout'),
     getEmployees: () => ipcRenderer.invoke('employees:getAll'),
     employeesLogin: async (params) => {
         const res = await ipcRenderer.invoke('employees:login', params);

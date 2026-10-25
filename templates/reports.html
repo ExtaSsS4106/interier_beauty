@@ -51,6 +51,23 @@
     </div>
 </div>
 
+<!-- Пустой период: подсказка вместо «мёртвого» отчёта -->
+<div class="alert alert-info d-none py-3 no-print" id="reportEmpty" role="status">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <i class="bi bi-info-circle fs-5"></i>
+        <span id="reportEmptyText">За выбранный период записей нет.</span>
+        <button type="button" class="btn btn-sm btn-outline-info ms-auto" id="emptyAllTime">
+            Показать всё время
+        </button>
+    </div>
+    <div class="small text-body-secondary mt-2" id="reportBounds"></div>
+</div>
+
+<p class="small text-body-secondary mb-4 no-print" id="reportHint">
+    <i class="bi bi-info-circle me-1"></i>Выручка считается по записям со статусом «Оказана»;
+    «Записана» и «Принята» попадают в план, «Отменена» не учитывается.
+</p>
+
 <!-- KPI -->
 <div class="row g-3 mb-4">
     <div class="col-6 col-lg-3">
@@ -99,7 +116,7 @@
                 <h2 class="h6 text-body-secondary text-uppercase mb-3">Услуги</h2>
                 <div class="table-responsive">
                     <table class="table align-middle mb-0">
-                        <thead class="table-light">
+                        <thead>
                             <tr>
                                 <th scope="col">Услуга</th>
                                 <th scope="col" class="text-end">Кол-во</th>
@@ -124,7 +141,7 @@
                 <h2 class="h6 text-body-secondary text-uppercase mb-3">Мастера</h2>
                 <div class="table-responsive">
                     <table class="table align-middle mb-0">
-                        <thead class="table-light">
+                        <thead>
                             <tr>
                                 <th scope="col">Мастер</th>
                                 <th scope="col" class="text-end">Услуг</th>
@@ -148,7 +165,7 @@
                 <h2 class="h6 text-body-secondary text-uppercase mb-3">Клиенты</h2>
                 <div class="table-responsive">
                     <table class="table align-middle mb-0">
-                        <thead class="table-light">
+                        <thead>
                             <tr>
                                 <th scope="col">Клиент</th>
                                 <th scope="col" class="text-end">Оказано услуг</th>
@@ -175,6 +192,15 @@
 
     const ui = window.ui;
     const api = window.db_requests.reports;
+    const perm = (window.app.states.data.user || {}).permissions || {};
+
+    // Отчёт есть у админа и менеджера; мастер работает только со своими записями
+    if (!perm.reportsRead) {
+        ui.toast('Раздел «Отчёты» недоступен для вашей роли', 'warning');
+        window.navigate('/');
+        return;
+    }
+
     let lastReport = null;
 
     function setPeriod(from, to) {
@@ -218,12 +244,33 @@
             : 'Период: всё время';
         $('periodLabel').textContent = period;
 
+        const st = report.statuses || {};
         $('kpiTotal').textContent = ui.num(report.total);
-        $('kpiStatuses').textContent = `записана: ${report.statuses.new} · оказана: ${report.statuses.done} · отменена: ${report.statuses.cancelled}`;
+        $('kpiStatuses').textContent = [
+            `записана: ${st.new || 0}`,
+            `принята: ${st.accepted || 0}`,
+            `оказана: ${st.done || 0}`,
+            `отменена: ${st.cancelled || 0}`,
+        ].join(' · ');
         $('kpiDone').textContent = ui.num(report.done);
         $('kpiRevenue').textContent = ui.money(report.revenue);
         $('kpiPlanned').textContent = `план (без отменённых): ${ui.money(report.planned)}`;
         $('kpiAvg').textContent = ui.money(report.avgCheck);
+
+        // Пустой период — объясняем, а не показываем нули молча
+        const bounds = report.bounds || {};
+        const isEmpty = !report.total;
+        $('reportEmpty').classList.toggle('d-none', !isEmpty);
+        if (isEmpty) {
+            $('reportEmptyText').textContent = report.from || report.to
+                ? `За выбранный период записей нет (всего в базе: ${bounds.total || 0}).`
+                : 'Записей в базе пока нет.';
+            if (bounds.total) {
+                $('reportBounds').textContent = `Есть данные за период: ${ui.fmtDate(bounds.min)} — ${ui.fmtDate(bounds.max)}. Выберите другой период или нажмите «Показать всё время».`;
+            } else {
+                $('reportBounds').textContent = 'Начните с раздела «Записи»: создайте первую запись, а затем отметьте её оказанной — она попадёт в выручку.';
+            }
+        }
 
         $('serviceRows').innerHTML = report.services.map((s) => `
             <tr>
@@ -274,6 +321,7 @@
     $('thisMonth').addEventListener('click', () => { const r = thisMonthRange(); setPeriod(r.from, r.to); build(); });
     $('lastMonth').addEventListener('click', () => { const r = lastMonthRange(); setPeriod(r.from, r.to); build(); });
     $('allTime').addEventListener('click', () => { setPeriod('', ''); build(); });
+    $('emptyAllTime')?.addEventListener('click', () => { setPeriod('', ''); build(); });
 
     const month = thisMonthRange();
     setPeriod(month.from, month.to);

@@ -197,7 +197,7 @@
                 password: password.value,
             });
             await window.authStorage.save(res.data);
-            window.app.states.data.user = res.data;
+            window.app.states.setUser(res.data);
             successAlert.classList.remove('d-none');
             successAlert.classList.add('d-flex');
             setTimeout(() => window.navigate('/'), 400);

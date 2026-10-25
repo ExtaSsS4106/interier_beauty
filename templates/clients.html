@@ -6,9 +6,11 @@
         <h1 class="h4 mb-1">Клиенты</h1>
         <div class="text-body-secondary small" id="clientsCount">Загружаем…</div>
     </div>
+    {% if data.user.permissions.clientsWrite %}
     <button type="button" class="btn btn-primary" id="addBtn">
         <i class="bi bi-person-plus me-1"></i>Добавить клиента
     </button>
+    {% endif %}
 </div>
 
 <div class="card border-0 shadow-sm rounded-4">
@@ -33,13 +35,15 @@
 
         <div class="table-responsive">
             <table class="table align-middle mb-0">
-                <thead class="table-light">
+                <thead>
                     <tr>
                         <th scope="col">Клиент</th>
                         <th scope="col">Телефон</th>
                         <th scope="col">Email</th>
                         <th scope="col" class="text-end">Записей</th>
+                        {% if data.user.permissions.clientsWrite %}
                         <th scope="col" class="text-end">Действия</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody id="rows"></tbody>
@@ -110,6 +114,15 @@
 
     const ui = window.ui;
     const api = window.db_requests.clients;
+    const perm = (window.app.states.data.user || {}).permissions || {};
+
+    // Раздел только для тех, у кого есть права (админ и менеджер)
+    if (!perm.clientsRead) {
+        ui.toast('Раздел «Клиенты» недоступен для вашей роли', 'warning');
+        window.navigate('/');
+        return;
+    }
+    const canWrite = Boolean(perm.clientsWrite);
 
     let rows = [];
     let editingId = null;
@@ -183,12 +196,13 @@
                 <td class="text-end">
                     <span class="badge text-bg-light rounded-pill">${ui.num(r.appointments_count || 0)}</span>
                 </td>
+                ${canWrite ? `
                 <td class="text-end text-nowrap">
                     <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-edit="${r.id}"
                             aria-label="Редактировать"><i class="bi bi-pencil"></i></button>
                     <button type="button" class="btn btn-sm btn-outline-danger" data-del="${r.id}"
                             aria-label="Удалить"><i class="bi bi-trash"></i></button>
-                </td>
+                </td>` : ''}
             </tr>`).join('');
         $('empty').classList.toggle('d-none', list.length > 0);
     }
@@ -214,7 +228,7 @@
         $('modalAlert').classList.toggle('d-none', !message);
     }
 
-    $('addBtn').addEventListener('click', () => openModal(null));
+    $('addBtn')?.addEventListener('click', () => openModal(null));
     $('search').addEventListener('input', render);
     $('sort').addEventListener('change', render);
 

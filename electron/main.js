@@ -31,6 +31,35 @@ function getDbModels() {
     throw new Error('Нет подключения к БД');
 }
 
+/* --------------------------- Сессия и права --------------------------- */
+// Кто сейчас вошёл в систему. Права проверяются здесь, в main-процессе:
+// renderer может только показать/спрятать кнопки, но не обойти проверку.
+let session = null;
+
+function currentSession() {
+    if (!session) throw new Error('Сессия не активна — войдите в систему.');
+    return session;
+}
+
+function requirePermission(action) {
+    const user = currentSession();
+    if (!booking.can(user.role, action)) {
+        throw new Error('Недостаточно прав для этого действия.');
+    }
+    return user;
+}
+
+function startSession(employee) {
+    session = {
+        id: employee.id,
+        email: employee.email,
+        role: booking.normalizeRole(employee.role),
+        first_name: employee.first_name,
+        last_name: employee.last_name,
+    };
+    return session;
+}
+
 function registerAuthStorage() {
     ipcMain.handle('auth:load', async () => {
         try {
@@ -131,15 +160,31 @@ function registerAuthStorage() {
 
     
     try {
+        // «В пустую» регистрация нужна только для первого сотрудника:
+        // дальше заводить администраторов может лишь тот, у кого есть права.
+        if ((await employees.count()) > 0) requirePermission('employees.write');
+
         const newEmployee = await employees.create({
         first_name: payload.first_name,
         last_name:  payload.last_name,
         email:      payload.email,
-        role:       payload.role,
+        role:       booking.normalizeRole(payload.role),
         password:   payload.password,
         });
 
-        return { ok: true, id: newEmployee.id };
+        // Первый зарегистрированный сотрудник сразу входит в систему
+        const user = startSession(newEmployee);
+        return {
+            ok: true,
+            data: {
+                id: user.id,
+                first_name: user.first_name,
+                last_name: user.last_name,
+                email: user.email,
+                role: user.role,
+                permissions: booking.permissionsFor(user.role),
+            },
+        };
     } catch (err) {
         return { ok: false, error: booking.humanizeError(err) };
     }
@@ -149,29 +194,28 @@ function registerAuthStorage() {
         const { employees } = getDbModels();
         const user = await employees.findOne({ where: { email } });
 
-        if (!user) {
-            return { ok: false, error: 'Invalid credentials' };
+        if (!user || password !== user.password) {
+            return { ok: false, error: 'Неверный email или пароль' };
         }
 
-        if (password === user.password) {
-            return { 
-                ok: true,
-                data: {
-                    first_name: user.first_name,
-                    last_name:  user.last_name,
-                    email:      user.email,
-                    role:       user.role,
-                    password:   user.password,
-                } 
-            };
-        }else{
-            return { 
-                ok: false,
-                error: 'Invalid credentials'
-            };
-        }
+        const sessionUser = startSession(user);
+        return {
+            ok: true,
+            data: {
+                id: sessionUser.id,
+                first_name: sessionUser.first_name,
+                last_name: sessionUser.last_name,
+                email: sessionUser.email,
+                role: sessionUser.role,          // нормализованная роль
+                permissions: booking.permissionsFor(sessionUser.role),
+            },
+        };
+    });
 
-        
+    // Выход: сбрасываем права, чтобы без входа ничего нельзя было делать
+    ipcMain.handle('session:logout', async () => {
+        session = null;
+        return { ok: true };
     });
 
     // Пример: данные тоже отдаёте через IPC, модели в renderer не передать
@@ -196,8 +240,13 @@ const toJson = (row) => (row && typeof row.toJSON === 'function' ? row.toJSON() 
 function registerDbApi() {
     // Renderer всегда получает { ok, data | error }: падение запроса к БД
     // превращается в понятное сообщение, а не в необработанный reject.
-    const guard = (handler) => async (_event, payload) => {
+    // action: 'раздел.действие' → проверка прав по роли, 'session' → нужен
+    // только вход в систему, null → без проверки. Renderer всегда получает
+    // { ok, data | error }, а «Недостаточно прав» уходит обычной ошибкой.
+    const guard = (action, handler) => async (_event, payload) => {
         try {
+            if (action === 'session') currentSession();
+            else if (action) requirePermission(action);
             return { ok: true, data: await handler(payload) };
         } catch (error) {
             console.error('[db api]', error);
@@ -242,20 +291,20 @@ function registerDbApi() {
 
     /* ------------------------------ clients ------------------------------ */
 
-    ipcMain.handle('clients:list', guard(async () => {
+    ipcMain.handle('clients:list', guard('clients.read', async () => {
         const m = models();
         const rows = await m.clients.findAll({ order: [['last_name', 'ASC'], ['first_name', 'ASC']] });
         const counts = await appointmentCounts(m, 'client_id');
         return rows.map((r) => ({ ...toJson(r), appointments_count: counts.get(Number(r.id)) || 0 }));
     }));
 
-    ipcMain.handle('clients:create', guard(async (payload) => {
+    ipcMain.handle('clients:create', guard('clients.write', async (payload) => {
         const { errors, data } = booking.validateClient(payload);
         if (Object.keys(errors).length) throw new Error(booking.formatErrors(errors));
         return toJson(await models().clients.create(data));
     }));
 
-    ipcMain.handle('clients:update', guard(async (payload) => {
+    ipcMain.handle('clients:update', guard('clients.write', async (payload) => {
         const { errors, data } = booking.validateClient(payload);
         if (Object.keys(errors).length) throw new Error(booking.formatErrors(errors));
         const row = await ensure(models().clients, payload.id, 'Клиент');
@@ -263,7 +312,7 @@ function registerDbApi() {
         return toJson(row);
     }));
 
-    ipcMain.handle('clients:delete', guard(async (id) => {
+    ipcMain.handle('clients:delete', guard('clients.write', async (id) => {
         const m = models();
         const row = await ensure(m.clients, id, 'Клиент');
         const used = await usedByAppointments(m, 'client_id', row.id);
@@ -274,20 +323,20 @@ function registerDbApi() {
 
     /* ----------------------------- employees ----------------------------- */
 
-    ipcMain.handle('employees:list', guard(async () => {
+    ipcMain.handle('employees:list', guard('employees.read', async () => {
         const m = models();
         const rows = await m.employees.findAll({ order: [['last_name', 'ASC'], ['first_name', 'ASC']] });
         const counts = await appointmentCounts(m, 'employee_id');
         return rows.map((r) => ({ ...toJson(r), appointments_count: counts.get(Number(r.id)) || 0 }));
     }));
 
-    ipcMain.handle('employees:create', guard(async (payload) => {
+    ipcMain.handle('employees:create', guard('employees.write', async (payload) => {
         const { errors, data } = booking.validateEmployee(payload);
         if (Object.keys(errors).length) throw new Error(booking.formatErrors(errors));
         return toJson(await models().employees.create(data));
     }));
 
-    ipcMain.handle('employees:update', guard(async (payload) => {
+    ipcMain.handle('employees:update', guard('employees.write', async (payload) => {
         const { errors, data } = booking.validateEmployee(payload);
         if (Object.keys(errors).length) throw new Error(booking.formatErrors(errors));
         const row = await ensure(models().employees, payload.id, 'Сотрудник');
@@ -295,7 +344,7 @@ function registerDbApi() {
         return toJson(row);
     }));
 
-    ipcMain.handle('employees:delete', guard(async (id) => {
+    ipcMain.handle('employees:delete', guard('employees.write', async (id) => {
         const m = models();
         const row = await ensure(m.employees, id, 'Сотрудник');
         const used = await usedByAppointments(m, 'employee_id', row.id);
@@ -306,18 +355,18 @@ function registerDbApi() {
 
     /* ------------------------------ services ----------------------------- */
 
-    ipcMain.handle('services:list', guard(async () => {
+    ipcMain.handle('services:list', guard('services.read', async () => {
         const rows = await models().services.findAll({ order: [['title', 'ASC']] });
         return rows.map(toJson);
     }));
 
-    ipcMain.handle('services:create', guard(async (payload) => {
+    ipcMain.handle('services:create', guard('services.write', async (payload) => {
         const { errors, data } = booking.validateService(payload);
         if (Object.keys(errors).length) throw new Error(booking.formatErrors(errors));
         return toJson(await models().services.create(data));
     }));
 
-    ipcMain.handle('services:update', guard(async (payload) => {
+    ipcMain.handle('services:update', guard('services.write', async (payload) => {
         const { errors, data } = booking.validateService(payload);
         if (Object.keys(errors).length) throw new Error(booking.formatErrors(errors));
         const row = await ensure(models().services, payload.id, 'Услуга');
@@ -325,7 +374,7 @@ function registerDbApi() {
         return toJson(row);
     }));
 
-    ipcMain.handle('services:delete', guard(async (id) => {
+    ipcMain.handle('services:delete', guard('services.write', async (id) => {
         const m = models();
         const row = await ensure(m.services, id, 'Услуга');
         const used = await usedByAppointments(m, 'service_id', row.id);
@@ -336,16 +385,20 @@ function registerDbApi() {
 
     /* ---------------------------- appointments --------------------------- */
 
-    ipcMain.handle('appointments:list', guard(async () => {
+    ipcMain.handle('appointments:list', guard('appointments.read', async () => {
         const m = models();
+        const user = currentSession();
+        // Мастер видит только свои заказы, админ и менеджер — все
+        const where = booking.can(user.role, 'appointments.write') ? {} : { employee_id: user.id };
         const rows = await m.appointments.findAll({
+            where,
             include: appointmentInclude(m),
             order: [['date', 'DESC'], ['time', 'ASC']],
         });
         return rows.map(toJson);
     }));
 
-    ipcMain.handle('appointments:create', guard(async (payload) => {
+    ipcMain.handle('appointments:create', guard('appointments.write', async (payload) => {
         const { errors, data } = booking.validateAppointment(payload);
         if (Object.keys(errors).length) throw new Error(booking.formatErrors(errors));
 
@@ -382,12 +435,27 @@ function registerDbApi() {
         };
     }));
 
-    ipcMain.handle('appointments:update', guard(async (payload) => {
+    ipcMain.handle('appointments:update', guard('appointments.status', async (payload) => {
         const { errors, data } = booking.validateAppointment(payload);
         if (Object.keys(errors).length) throw new Error(booking.formatErrors(errors));
 
         const m = models();
+        const user = currentSession();
         const row = await ensure(m.appointments, payload.id, 'Запись');
+
+        // Мастер без права «записи»: только свои заказы и только смена статуса
+        if (!booking.can(user.role, 'appointments.write')) {
+            if (Number(row.employee_id) !== Number(user.id)) {
+                throw new Error('Можно изменять только свои записи.');
+            }
+            const unchanged = ['date', 'time', 'client_id', 'employee_id', 'service_id']
+                .every((key) => String(row[key]) === String(data[key]));
+            if (!unchanged) {
+                throw new Error('Мастер может менять только статус записи.');
+            }
+            await row.update({ status: data.status });
+            return toJson(row);
+        }
 
         const [client, employee, service] = await Promise.all([
             ensure(m.clients, data.client_id, 'Клиент'),
@@ -420,7 +488,7 @@ function registerDbApi() {
         };
     }));
 
-    ipcMain.handle('appointments:delete', guard(async (id) => {
+    ipcMain.handle('appointments:delete', guard('appointments.write', async (id) => {
         const row = await ensure(models().appointments, id, 'Запись');
         await row.destroy();
         return { id: row.id };
@@ -429,28 +497,37 @@ function registerDbApi() {
     /* ------------------------------ отчёты ------------------------------- */
 
     // Отчёт: количество оказанных услуг и выручка за период.
-    ipcMain.handle('reports:summary', guard(async (payload = {}) => {
+    ipcMain.handle('reports:summary', guard('reports.read', async (payload = {}) => {
         const m = models();
         const rows = await m.appointments.findAll({ include: appointmentInclude(m) });
         return booking.buildReport(rows.map(toJson), payload || {});
     }));
 
     // Сводка для главной страницы: размеры справочников, расписание на сегодня
-    // и выручка за текущий месяц.
-    ipcMain.handle('reports:dashboard', guard(async () => {
+    // и выручка за текущий месяц. Для мастера данные ограничены его заказами.
+    ipcMain.handle('reports:dashboard', guard('session', async () => {
         const m = models();
+        const user = currentSession();
         const today = booking.todayISO();
+        const isMaster = !booking.can(user.role, 'appointments.write');
+
         const rows = (await m.appointments.findAll({
+            where: isMaster ? { employee_id: user.id } : {},
             include: appointmentInclude(m),
             order: [['date', 'ASC'], ['time', 'ASC']],
         })).map(toJson);
 
+        // Счётчики справочников отдаём только тем, кто имеет их читать
+        const countIf = async (action, fn) => (booking.can(user.role, action) ? fn() : null);
         const [clients, employees, services] = await Promise.all([
-            m.clients.count(), m.employees.count(), m.services.count(),
+            countIf('clients.read', () => m.clients.count()),
+            countIf('employees.read', () => m.employees.count()),
+            countIf('services.read', () => m.services.count()),
         ]);
 
         return {
             today,
+            scope: isMaster ? 'master' : 'all',
             clients,
             employees,
             services,

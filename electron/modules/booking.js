@@ -13,11 +13,71 @@ const PHONE_RE = /^\+?[0-9()\- ]{5,20}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
 
-const ROLES = ['admin', 'user', 'master'];
-const ROLE_LABELS = { admin: 'Администратор', user: 'Пользователь', master: 'Мастер' };
+const ROLES = ['admin', 'manager', 'master'];
+const ROLE_LABELS = { admin: 'Администратор', manager: 'Менеджер', master: 'Мастер' };
+/** Старая роль «user» из первой версии проекта — права менеджера. */
+const LEGACY_ROLES = { user: 'manager' };
 
-const STATUSES = ['new', 'done', 'cancelled'];
-const STATUS_LABELS = { new: 'Записана', done: 'Оказана', cancelled: 'Отменена' };
+const STATUSES = ['new', 'accepted', 'done', 'cancelled'];
+const STATUS_LABELS = {
+    new: 'Записана',
+    accepted: 'Принята',
+    done: 'Оказана',
+    cancelled: 'Отменена',
+};
+
+/* ====================== Роли и права (matrix) ====================== */
+
+// <раздел>.<действие> — единый источник прав: и для main.js (IPC), и для UI
+const ACTIONS = [
+    'clients.read', 'clients.write',
+    'employees.read', 'employees.write',
+    'services.read', 'services.write',
+    'appointments.read', 'appointments.write', 'appointments.status',
+    'reports.read',
+];
+
+const ROLE_ACTIONS = {
+    // админ видит всё и создаёт сотрудников/услуги
+    admin: ACTIONS.slice(),
+    // менеджер принимает клиентов и записывает их к мастерам
+    manager: [
+        'clients.read', 'clients.write',
+        'employees.read', 'services.read',
+        'appointments.read', 'appointments.write', 'appointments.status',
+        'reports.read',
+    ],
+    // мастер только видит свои заказы, принимает их и отмечает оказанными
+    master: ['appointments.read', 'appointments.status'],
+};
+
+/** 'user' → 'manager', неизвестные роли — к мастеру (права по умолчанию минимальны). */
+function normalizeRole(role) {
+    const value = text(role);
+    if (ROLES.includes(value)) return value;
+    return LEGACY_ROLES[value] || 'master';
+}
+
+function can(role, action) {
+    const actions = ROLE_ACTIONS[normalizeRole(role)] || [];
+    return actions.includes(action);
+}
+
+/**
+ * Плоский объект прав для шаблонов: { role: 'admin', clientsRead: true, ... }
+ * Отдаётся рендеру вместе с пользователем после входа/регистрации.
+ */
+function permissionsFor(role) {
+    const normalized = normalizeRole(role);
+    const actions = ROLE_ACTIONS[normalized] || [];
+    const result = { role: normalized };
+    for (const action of ACTIONS) {
+        const [section, verb] = action.split('.');
+        const key = section + verb.charAt(0).toUpperCase() + verb.slice(1);
+        result[key] = actions.includes(action);
+    }
+    return result;
+}
 
 const FIELD_LABELS = {
     first_name: 'Имя',
@@ -274,7 +334,7 @@ function buildReport(rows, opts = {}) {
     const byService = new Map();
     const byMaster = new Map();
     const byClient = new Map();
-    const statuses = { new: 0, done: 0, cancelled: 0 };
+    const statuses = { new: 0, accepted: 0, done: 0, cancelled: 0 };
 
     let revenue = 0;      // выручка: только оказанные услуги
     let planned = 0;      // план: всё не отменённое
@@ -340,10 +400,20 @@ function buildReport(rows, opts = {}) {
         revenue,
         planned,
         avgCheck: doneCount ? Math.round(revenue / doneCount) : 0,
+        bounds: reportBounds(rows),
         services,
         masters,
         clients,
     };
+}
+
+/** Границы дат по всем записям (без учёта периода) — подсказка для отчёта. */
+function reportBounds(rows) {
+    const dates = (Array.isArray(rows) ? rows : [])
+        .map((row) => text(row.date))
+        .filter(Boolean)
+        .sort();
+    return { min: dates[0] || null, max: dates[dates.length - 1] || null, total: dates.length };
 }
 
 module.exports = {
@@ -352,6 +422,8 @@ module.exports = {
     ROLE_LABELS,
     STATUSES,
     STATUS_LABELS,
+    ACTIONS,
+    ROLE_ACTIONS,
     FIELD_LABELS,
     // утилиты
     text,
@@ -369,9 +441,14 @@ module.exports = {
     validateEmployee,
     validateService,
     validateAppointment,
+    // роли и права
+    normalizeRole,
+    can,
+    permissionsFor,
     // расчёты
     findConflict,
     visitCost,
     totalCost,
     buildReport,
+    reportBounds,
 };

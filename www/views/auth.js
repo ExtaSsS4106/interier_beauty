@@ -1,5 +1,7 @@
 import { 
         data,
+        setUser,
+        clearUser,
         setStartupError, 
         set_authenticated, 
         tokens, 
@@ -40,7 +42,7 @@ export async function login(username, password) {
         body: JSON.stringify({ username, password }),
     });
     await saveTokens({ access: result.access, refresh: result.refresh });
-    data.user = await loadProfile();
+    setUser(await loadProfile());
     set_authenticated(true);
     data.authenticated = true;
     setStartupError('');
@@ -67,9 +69,15 @@ export async function logout() {
             // сервер может быть недоступен — локальную сессию чистим в любом случае
         }
     }
+    // Сбрасываем права в main-процессе: без входа запросы к БД блокируются
+    try {
+        if (window.db_requests?.sessionLogout) await window.db_requests.sessionLogout();
+    } catch (error) {
+        console.warn('sessionLogout', error);
+    }
     await clearTokens();
+    clearUser();
     set_authenticated(false);
     data.authenticated = false;
-    data.user = {};
     redirect('/login');
 }

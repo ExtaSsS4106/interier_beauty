@@ -6,9 +6,11 @@
         <h1 class="h4 mb-1">Мастера и сотрудники</h1>
         <div class="text-body-secondary small" id="mastersCount">Загружаем…</div>
     </div>
+    {% if data.user.permissions.employeesWrite %}
     <button type="button" class="btn btn-primary" id="addBtn">
         <i class="bi bi-person-plus me-1"></i>Зарегистрировать мастера
     </button>
+    {% endif %}
 </div>
 
 <div class="card border-0 shadow-sm rounded-4">
@@ -32,13 +34,15 @@
 
         <div class="table-responsive">
             <table class="table align-middle mb-0">
-                <thead class="table-light">
+                <thead>
                     <tr>
                         <th scope="col">Сотрудник</th>
                         <th scope="col">Email</th>
                         <th scope="col">Роль</th>
                         <th scope="col" class="text-end">Записей</th>
+                        {% if data.user.permissions.employeesWrite %}
                         <th scope="col" class="text-end">Действия</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody id="rows"></tbody>
@@ -86,8 +90,8 @@
                         <label for="role" class="form-label">Роль</label>
                         <select class="form-select" id="role" required>
                             <option value="master">Мастер</option>
+                            <option value="manager">Менеджер</option>
                             <option value="admin">Администратор</option>
-                            <option value="user">Пользователь</option>
                         </select>
                         <div class="invalid-feedback" id="roleError">Выберите роль.</div>
                     </div>
@@ -118,7 +122,16 @@
 
     const ui = window.ui;
     const api = window.db_requests.employees;
-    const ROLE_LABELS = { master: 'Мастер', admin: 'Администратор', user: 'Пользователь' };
+    const ROLE_LABELS = { admin: 'Администратор', manager: 'Менеджер', master: 'Мастер' };
+    const perm = (window.app.states.data.user || {}).permissions || {};
+
+    // Реестром сотрудников управляет только администратор
+    if (!perm.employeesRead) {
+        ui.toast('Раздел «Мастера» недоступен для вашей роли', 'warning');
+        window.navigate('/');
+        return;
+    }
+    const canWrite = Boolean(perm.employeesWrite);
 
     let rows = [];
     let editingId = null;
@@ -142,7 +155,7 @@
         },
         role: {
             input: $('role'), error: $('roleError'),
-            check: (v) => (['master', 'admin', 'user'].includes(v) ? '' : 'Выберите роль.'),
+            check: (v) => (['admin', 'manager', 'master'].includes(v) ? '' : 'Выберите роль.'),
         },
         password: {
             input: $('password'), error: $('passwordError'),
@@ -187,12 +200,13 @@
                 <td class="text-end">
                     <span class="badge text-bg-light rounded-pill">${ui.num(r.appointments_count || 0)}</span>
                 </td>
+                ${canWrite ? `
                 <td class="text-end text-nowrap">
                     <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-edit="${r.id}"
                             aria-label="Редактировать"><i class="bi bi-pencil"></i></button>
                     <button type="button" class="btn btn-sm btn-outline-danger" data-del="${r.id}"
                             aria-label="Удалить"><i class="bi bi-trash"></i></button>
-                </td>
+                </td>` : ''}
             </tr>`).join('');
         $('empty').classList.toggle('d-none', list.length > 0);
     }
@@ -219,7 +233,7 @@
         $('modalAlert').classList.toggle('d-none', !message);
     }
 
-    $('addBtn').addEventListener('click', () => openModal(null));
+    $('addBtn')?.addEventListener('click', () => openModal(null));
     $('search').addEventListener('input', render);
     $('roleFilter').addEventListener('change', render);
 

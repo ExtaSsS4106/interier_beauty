@@ -151,7 +151,27 @@ test('buildReport: выручка считается только по оказ�
     assert.strictEqual(report.revenue, 3000);
     assert.strictEqual(report.planned, 3000);           // отменённая не входит в план
     assert.strictEqual(report.avgCheck, 1500);
-    assert.deepStrictEqual(report.statuses, { new: 0, done: 2, cancelled: 1 });
+    assert.deepStrictEqual(report.statuses, { new: 0, accepted: 0, done: 2, cancelled: 1 });
+});
+
+test('buildReport: статус «Принята» входит в план, но не в выручку', () => {
+    const accepted = [...rows,
+        { date: '2026-10-20', status: 'accepted', client_id: 4, employee_id: 7, service_id: 2,
+            client: { id: 4, first_name: 'Полина', last_name: 'Морозова' },
+            employee: { id: 7, first_name: 'Мария', last_name: 'Петрова' },
+            service: { id: 2, title: 'Маникюр', price: 900 } },
+    ];
+    const report = booking.buildReport(accepted, { from: '2026-10-01', to: '2026-10-31' });
+    assert.strictEqual(report.statuses.accepted, 1);
+    assert.strictEqual(report.revenue, 3000, 'выручка только по оказанным');
+    assert.strictEqual(report.planned, 3900, 'принятая попадает в план');
+    assert.strictEqual(report.done, 2);
+});
+
+test('buildReport: bounds сообщает диапазон дат в базе', () => {
+    const report = booking.buildReport(rows, { from: '2027-01-01', to: '2027-01-31' });
+    assert.strictEqual(report.total, 0, 'за 2027 год записей нет');
+    assert.deepStrictEqual(report.bounds, { min: '2026-10-01', max: '2026-11-05', total: 4 });
 });
 
 test('buildReport: разбивка по услугам, мастерам и клиентам', () => {
@@ -170,7 +190,64 @@ test('buildReport: без дат показываются все записи', 
     assert.strictEqual(report.revenue, 3000);
 });
 
-/* ------------------------------ Утилиты ------------------------------- */
+/* ---------------------------- Роли и права ----------------------------- */
+
+test('ROLES: админ/менеджер/мастер и статус «Принята»', () => {
+    assert.deepStrictEqual(booking.ROLES, ['admin', 'manager', 'master']);
+    assert.deepStrictEqual(booking.STATUSES, ['new', 'accepted', 'done', 'cancelled']);
+    assert.strictEqual(booking.STATUS_LABELS.accepted, 'Принята');
+});
+
+test('normalizeRole: легаси «user» — это менеджер, мусор — мастер', () => {
+    assert.strictEqual(booking.normalizeRole('user'), 'manager');
+    assert.strictEqual(booking.normalizeRole('admin'), 'admin');
+    assert.strictEqual(booking.normalizeRole(''), 'master');
+    assert.strictEqual(booking.normalizeRole(null), 'master');
+    assert.strictEqual(booking.normalizeRole('root'), 'master');
+});
+
+test('can: админ может всё', () => {
+    for (const action of booking.ACTIONS) {
+        assert.strictEqual(booking.can('admin', action), true, action);
+    }
+});
+
+test('can: менеджер принимает клиентов, но не заводит сотрудников/услуги', () => {
+    assert.strictEqual(booking.can('manager', 'clients.write'), true);
+    assert.strictEqual(booking.can('manager', 'appointments.write'), true);
+    assert.strictEqual(booking.can('manager', 'appointments.status'), true);
+    assert.strictEqual(booking.can('manager', 'reports.read'), true);
+    assert.strictEqual(booking.can('manager', 'employees.write'), false);
+    assert.strictEqual(booking.can('manager', 'services.write'), false);
+});
+
+test('can: мастер только видит свои заказы, принимает и отмечает', () => {
+    assert.strictEqual(booking.can('master', 'appointments.read'), true);
+    assert.strictEqual(booking.can('master', 'appointments.status'), true);
+    assert.strictEqual(booking.can('master', 'appointments.write'), false);
+    assert.strictEqual(booking.can('master', 'clients.read'), false);
+    assert.strictEqual(booking.can('master', 'reports.read'), false);
+});
+
+test('permissionsFor: плоские булевы права для шаблонов', () => {
+    const admin = booking.permissionsFor('admin');
+    assert.strictEqual(admin.role, 'admin');
+    assert.strictEqual(admin.clientsWrite, true);
+    assert.strictEqual(admin.employeesWrite, true);
+    assert.strictEqual(admin.servicesWrite, true);
+
+    const manager = booking.permissionsFor('user');        // легаси-роль
+    assert.strictEqual(manager.role, 'manager');
+    assert.strictEqual(manager.clientsWrite, true);
+    assert.strictEqual(manager.employeesWrite, false);
+    assert.strictEqual(manager.servicesWrite, false);
+    assert.strictEqual(manager.reportsRead, true);
+
+    const master = booking.permissionsFor('master');
+    assert.strictEqual(master.appointmentsWrite, false);
+    assert.strictEqual(master.appointmentsStatus, true);
+    assert.strictEqual(master.clientsRead, false);
+});
 
 test('formatDate/formatTime приводят данные из БД к виду для UI', () => {
     assert.strictEqual(booking.formatDate('2026-10-25'), '25.10.2026');

@@ -1,0 +1,13 @@
+{# Верхняя панель: кнопка шторки, заголовок раздела и пользователь. #}
+<header class="topbar sticky-top d-flex align-items-center gap-3 px-3 py-2 border-bottom bg-body-tertiary">
+    <button type="button" class="btn btn-outline-secondary" data-sidebar-toggle
+            aria-label="Показать меню" aria-controls="appSidebar">
+        <i class="bi bi-list fs-5"></i>
+    </button>
+
+    <span class="fw-semibold text-truncate">{{ data.title }}</span>
+
+    <span class="ms-auto small text-body-secondary text-truncate d-none d-sm-inline">
+        {{ data.user.first_name }} {{ data.user.last_name }}
+    </span>
+</header>

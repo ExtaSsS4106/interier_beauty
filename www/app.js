@@ -197,6 +197,53 @@ document.addEventListener('submit', (event) => {
     logout();
 });
 
+/* ======================= Левая выдвижная шторка ======================= */
+// Состояние храним классом на <html>, а не в самом #root: меню переживает
+// любую перерисовку страницы и не «закрывается» при переходе между разделами.
+
+const SIDEBAR_KEY = 'sidebar-open';
+
+function applySidebar(open) {
+    document.documentElement.classList.toggle('sidebar-open', Boolean(open));
+    try {
+        localStorage.setItem(SIDEBAR_KEY, open ? '1' : '0');
+    } catch {
+        // приватный режим — состояние просто не сохранится
+    }
+}
+
+function initSidebar() {
+    let saved = null;
+    try {
+        saved = localStorage.getItem(SIDEBAR_KEY);
+    } catch { /* нет доступа к localStorage */ }
+    // по умолчанию: на десктопе меню открыто, на телефоне скрыто.
+    // innerWidth === 0 — окно ещё не показано (скрытое окно в e2e-тесте),
+    // тогда viewport неизвестен и считаем это десктопом.
+    const fallback = window.innerWidth === 0
+        || window.matchMedia('(min-width: 992px)').matches;
+    applySidebar(saved === null ? fallback : saved === '1');
+}
+
+document.addEventListener('click', (event) => {
+    const toggle = event.target.closest('[data-sidebar-toggle]');
+    if (toggle) {
+        event.preventDefault();
+        applySidebar(!document.documentElement.classList.contains('sidebar-open'));
+        return;
+    }
+    // фон или пункт меню — закрываем шторку (ссылка при этом выполняется)
+    if (event.target.closest('[data-sidebar-close]')) applySidebar(false);
+});
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && document.documentElement.classList.contains('sidebar-open')) {
+        applySidebar(false);
+    }
+});
+
+initSidebar();
+
 
 
 /* ======================= Инициализация ======================= */

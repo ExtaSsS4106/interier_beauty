@@ -6,11 +6,14 @@
 
    Что проверяется:
      1. приложение загружается без ошибок рендера;
-     2. подключение к БД, регистрация мастера и администратора;
+     2. подключение к БД, вход в систему (сессия) и регистрация администратора;
      3. CRUD клиентов/мастеров/услуг;
      4. запись клиента + проверка занятости мастера;
      5. отчёт: количество оказанных услуг и выручка;
-     6. каждая страница (#/clients, #/masters, #/services, #/appointments,
+     6. разделение прав: админ — всё, менеджер — клиенты и запись,
+        мастер — только свои заказы и смена статуса;
+     7. меню в левой выдвижной шторке (а не в шапке);
+     8. каждая страница (#/clients, #/masters, #/services, #/appointments,
         #/reports, #/) отрисовывается и наполняется данными. */
 
 const { app, BrowserWindow } = require('electron');
@@ -99,6 +102,28 @@ app.whenReady().then(async () => {
 
         /* --------------------- 2. Подключение к SQLite --------------------- */
         await js(win, 'window.db_requests.login({ dialect: "sqlite" })');
+
+        // Без входа в систему main-процесс не отдаёт никаких данных
+        const noSession = await js(win,
+            'window.db_requests.clients.list().then(() => null, (e) => e.message)');
+        assert('без входа в систему запросы к БД блокируются',
+            typeof noSession === 'string' && /сессия/i.test(noSession), String(noSession));
+
+        /* -------------- 3. Регистрация администратора (вход) -------------- */
+        const adminUser = await js(win, `window.db_requests.adminReg({
+            first_name: 'Администратор', last_name: 'Салона',
+            email: 'admin@salon.local', role: 'admin', password: 'secret123'
+        })`);
+        assert('регистрация админа открывает сессию с полными правами',
+            adminUser && adminUser.id > 0 && adminUser.permissions
+            && adminUser.permissions.role === 'admin'
+            && adminUser.permissions.employeesWrite === true
+            && adminUser.permissions.servicesWrite === true,
+            JSON.stringify(adminUser));
+
+        // UI тоже должен знать, кто вошёл: по data.user шаблоны прячут кнопки
+        await js(win, `window.app.states.setUser(${JSON.stringify(adminUser)})`);
+
         const tables = await js(win, `(async () => {
             const clients = await window.db_requests.clients.list();
             const masters = await window.db_requests.employees.list();
@@ -111,17 +136,12 @@ app.whenReady().then(async () => {
             && Array.isArray(tables.services) && Array.isArray(tables.appts),
             JSON.stringify(Object.keys(tables)));
 
-        /* ---------------- 3. Регистрация мастера и админа ---------------- */
-        const admin = await js(win, `window.db_requests.employees.create({
-            first_name: 'Администратор', last_name: 'Салона',
-            email: 'admin@salon.local', role: 'admin', password: 'secret123'
-        })`);
+        /* ---------------- 4. Регистрация мастера -------------------------- */
         const master = await js(win, `window.db_requests.employees.create({
             first_name: 'Мария', last_name: 'Петрова',
             email: 'maria@salon.local', role: 'master', password: 'secret123'
         })`);
-        assert('регистрация мастеров и администратора', admin.id > 0 && master.id > 0,
-            `admin=${admin.id}, master=${master.id}`);
+        assert('регистрация мастера', master.id > 0, `master=${master.id}`);
 
         const badMaster = await js(win, `window.db_requests.employees.create({
             first_name: '', last_name: '', email: 'не-email', role: 'root', password: '1'
@@ -166,6 +186,14 @@ app.whenReady().then(async () => {
         })`);
         assert('свободный слот принимается', freeSlot.id > 0, JSON.stringify(freeSlot.error || freeSlot));
 
+        // Запись «не на мастера» — пригодится, чтобы проверить, что мастер
+        // не может трогать чужие заказы
+        const adminAppt = await js(win, `window.db_requests.appointments.create({
+            client_id: ${client.id}, employee_id: ${adminUser.id}, service_id: ${service.id},
+            date: '2026-10-27', time: '11:00'
+        })`);
+        assert('запись на администратора создана', adminAppt.id > 0, JSON.stringify(adminAppt.error || adminAppt));
+
         await js(win, `window.db_requests.appointments.update({
             id: ${appt.id}, client_id: ${client.id}, employee_id: ${master.id},
             service_id: ${service.id}, date: '2026-10-25', time: '14:30', status: 'done'
@@ -192,6 +220,101 @@ app.whenReady().then(async () => {
         assert('сводка главной страницы', dash.clients === 1 && dash.employees === 2 && dash.services === 1,
             JSON.stringify({ c: dash.clients, e: dash.employees, s: dash.services }));
 
+        /* ------------------- 7. Разделение прав (роли) --------------------- */
+        const denied = async (code) => js(win, `${code}.then(() => null, (e) => e.message)`);
+        const loginAs = (email) => js(win,
+            `window.db_requests.employeesLogin({ email: '${email}', password: 'secret123' })`
+            + '.then((r) => r.data, (e) => ({ error: e.message }))');
+
+        // менеджер заводится админом — иначе некого логинить
+        const manager = await js(win, `window.db_requests.employees.create({
+            first_name: 'Ольга', last_name: 'Менеджер',
+            email: 'olga@salon.local', role: 'manager', password: 'secret123'
+        })`);
+        assert('регистрация менеджера', manager.id > 0, `manager=${manager.id}`);
+
+        /* --- мастер: только свои заказы, принять и отметить оказанной --- */
+        const masterLogin = await loginAs('maria@salon.local');
+        assert('мастер входит в систему, права минимальные',
+            masterLogin && masterLogin.role === 'master'
+            && masterLogin.permissions.appointmentsWrite === false
+            && masterLogin.permissions.appointmentsStatus === true,
+            JSON.stringify(masterLogin));
+
+        assert('мастеру справочник клиентов недоступен',
+            /недостаточно прав/i.test(await denied('window.db_requests.clients.list()') || ''),
+            String(await denied('window.db_requests.clients.list()')));
+        assert('мастер не может создать услугу',
+            /недостаточно прав/i.test(await denied(
+                "window.db_requests.services.create({ title: 'Обман', price: '1' })") || ''), '');
+        assert('мастер не может завести сотрудника',
+            /недостаточно прав/i.test(await denied(
+                "window.db_requests.employees.create({ first_name: 'X', last_name: 'Y',"
+                + " email: 'x@y.local', role: 'admin', password: 'secret123' })") || ''), '');
+
+        const masterAppts = await js(win, 'window.db_requests.appointments.list()');
+        assert('мастер видит только свои заказы',
+            Array.isArray(masterAppts) && masterAppts.length === 2
+            && masterAppts.every((r) => r.employee_id === master.id),
+            JSON.stringify(masterAppts.map((r) => `${r.id}:emp${r.employee_id}`)));
+
+        const accepted = await js(win, `window.db_requests.appointments.update({
+            id: ${freeSlot.id}, client_id: ${client.id}, employee_id: ${master.id},
+            service_id: ${service.id}, date: '2026-10-25', time: '16:00', status: 'accepted'
+        }).then((r) => r.status, (e) => e.message)`);
+        assert('мастер принимает свою запись (только статус)', accepted === 'accepted', String(accepted));
+
+        assert('мастер не может менять дату/время записи',
+            /только статус/i.test(await denied(`window.db_requests.appointments.update({
+                id: ${freeSlot.id}, client_id: ${client.id}, employee_id: ${master.id},
+                service_id: ${service.id}, date: '2026-10-28', time: '16:00', status: 'accepted'
+            })`) || ''), '');
+
+        assert('чужую запись мастер изменить не может',
+            /только свои/i.test(await denied(`window.db_requests.appointments.update({
+                id: ${adminAppt.id}, client_id: ${client.id}, employee_id: ${adminUser.id},
+                service_id: ${service.id}, date: '2026-10-27', time: '11:00', status: 'done'
+            })`) || ''), '');
+
+        /* --- менеджер: принимает клиентов и направляет к мастерам --- */
+        const managerLogin = await loginAs('olga@salon.local');
+        assert('менеджер входит в систему',
+            managerLogin && managerLogin.role === 'manager'
+            && managerLogin.permissions.clientsWrite === true
+            && managerLogin.permissions.employeesWrite === false,
+            JSON.stringify(managerLogin));
+
+        assert('менеджер не может завести сотрудника',
+            /недостаточно прав/i.test(await denied(
+                "window.db_requests.employees.create({ first_name: 'X', last_name: 'Y',"
+                + " email: 'x2@y.local', role: 'master', password: 'secret123' })") || ''), '');
+        assert('менеджер не может добавить услугу',
+            /недостаточно прав/i.test(await denied(
+                "window.db_requests.services.create({ title: 'Самодеятельность', price: '1' })") || ''), '');
+
+        const managerClient = await js(win, `window.db_requests.clients.create({
+            first_name: 'Временный', last_name: 'Клиент',
+            number: '+7 900 111-22-33', email: 'temp@client.local'
+        }).then((r) => r, (e) => ({ error: e.message }))`);
+        assert('менеджер регистрирует клиента', managerClient && managerClient.id > 0,
+            JSON.stringify(managerClient));
+
+        const managerAppt = await js(win, `window.db_requests.appointments.create({
+            client_id: ${managerClient.id}, employee_id: ${master.id}, service_id: ${service.id},
+            date: '2026-10-26', time: '10:00'
+        }).then((r) => r, (e) => ({ error: e.message }))`);
+        assert('менеджер записывает клиента к мастеру', managerAppt && managerAppt.id > 0,
+            JSON.stringify(managerAppt));
+
+        // уборка за менеджером, чтобы база осталась в исходном виде
+        await js(win, `window.db_requests.appointments.remove(${managerAppt.id})`);
+        await js(win, `window.db_requests.clients.remove(${managerClient.id})`);
+
+        /* --- возвращаем сессию администратора для дальнейших проверок --- */
+        const relogin = await loginAs('admin@salon.local');
+        assert('администратор снова в системе', relogin && relogin.role === 'admin'
+            && relogin.permissions.employeesWrite === true, JSON.stringify(relogin));
+
         /* --------------------- 7. Отрисовка страниц ------------------------ */
         const openPage = async (route) => {
             await js(win, `window.navigate(${JSON.stringify(route)})`);
@@ -201,11 +324,13 @@ app.whenReady().then(async () => {
             const stats = await js(win, `({
                 hash: location.hash,
                 nodes: document.querySelectorAll('#root *').length,
-                hasNavbar: !!document.querySelector('#root nav'),
+                hasSidebar: !!document.querySelector('#root .app-sidebar nav'),
+                hasTopbar: !!document.querySelector('#root .topbar'),
+                headerMenu: !!document.querySelector('#root header nav'),
             })`);
-            assert(`страница ${route} отрисована`, ready && stats.nodes > 20 && stats.hasNavbar,
-                JSON.stringify(stats));
-            if (!(ready && stats.nodes > 20 && stats.hasNavbar)) {
+            const ok = ready && stats.nodes > 20 && stats.hasSidebar && stats.hasTopbar && !stats.headerMenu;
+            assert(`страница ${route} отрисована (шторка вместо шапки)`, ok, JSON.stringify(stats));
+            if (!ok) {
                 console.log('   консоль:', consoleErrors.slice(-3).join(' | ') || 'нет сообщений');
             }
         };
@@ -217,7 +342,7 @@ app.whenReady().then(async () => {
         // Данные действительно попали в таблицы
         await openPage('/appointments');
         const apptRows = await js(win, 'document.querySelectorAll("#rows tr").length').catch(() => -1);
-        assert('таблица записей наполнена данными', apptRows === 2, `строк: ${apptRows}`);
+        assert('таблица записей наполнена данными', apptRows === 3, `строк: ${apptRows}`);
 
         // Конфликт занятости должен показаться прямо в форме записи
         await js(win, 'document.getElementById("addBtn").click()');
@@ -319,13 +444,87 @@ app.whenReady().then(async () => {
         })()`);
         await sleep(1500);
         const masterRows = await js(win, 'document.querySelectorAll("#rows tr").length');
-        assert('мастер зарегистрирован через форму', masterRows === 3, `строк: ${masterRows}`);
+        assert('мастер зарегистрирован через форму', masterRows === 4, `строк: ${masterRows}`);
 
+        /* ---------------- 9. Отчёт на странице ----------------------------- */
         await openPage('/reports');
-        const reportKpi = await js(win, 'document.getElementById("kpiRevenue").textContent').catch(() => '');
-        assert('отчёт отрисован на странице', reportKpi.includes('1'), `kpiRevenue: ${reportKpi}`);
+        await js(win, 'document.getElementById("allTime").click()');   // не зависим от даты
+        await sleep(1200);
+        const reportState = await js(win, `({
+            revenue: document.getElementById('kpiRevenue').textContent,
+            done: document.getElementById('kpiDone').textContent,
+            statuses: document.getElementById('kpiStatuses').textContent,
+            emptyHidden: document.getElementById('reportEmpty').classList.contains('d-none'),
+            tables: document.querySelectorAll('#serviceRows tr, #masterRows tr, #clientRows tr').length,
+        })`);
+        assert('отчёт выводится: выручка и оказанные услуги',
+            reportState.revenue.includes('1') && reportState.done.trim() === '1',
+            JSON.stringify(reportState));
+        assert('отчёт показывает статусы, включая «Принята»',
+            /принята:\s*1/.test(reportState.statuses), reportState.statuses);
+        assert('при данных пустое состояние не показывается', reportState.emptyHidden === true,
+            JSON.stringify(reportState));
+        assert('разбивки отчёта заполнены (услуги/мастера/клиенты)',
+            reportState.tables >= 3, `строк: ${reportState.tables}`);
 
-        /* --------------------------- 8. Ошибки ----------------------------- */
+        /* ---------------- 10. Шторка вместо шапки -------------------------- */
+        const sidebar = await js(win, `({
+            sidebar: !!document.querySelector('#root .app-sidebar'),
+            nav: document.querySelectorAll('#root .app-sidebar nav a').length,
+            topbar: !!document.querySelector('#root .topbar'),
+            headerMenu: !!document.querySelector('#root header nav'),
+            toggle: !!document.querySelector('#root [data-sidebar-toggle]'),
+            logout: !!document.querySelector('#root [data-logout]'),
+            open: document.documentElement.classList.contains('sidebar-open'),
+        })`);
+        assert('меню живёт в левой выдвижной шторке, а не в шапке',
+            sidebar.sidebar && sidebar.topbar && !sidebar.headerMenu
+            && sidebar.nav >= 6 && sidebar.toggle && sidebar.logout,
+            JSON.stringify(sidebar));
+        assert('для админа шторка открыта по умолчанию', sidebar.open === true, JSON.stringify(sidebar));
+
+        await js(win, 'document.querySelector("[data-sidebar-toggle]").click()');
+        await sleep(300);
+        const closed = await js(win, "!document.documentElement.classList.contains('sidebar-open')");
+        await openPage('/clients');
+        const closedAfterNav = await js(win, "!document.documentElement.classList.contains('sidebar-open')");
+        assert('кнопка шторки скрывает меню и состояние переживает переход',
+            closed && closedAfterNav, JSON.stringify({ closed, closedAfterNav }));
+        await js(win, 'document.querySelector("[data-sidebar-toggle]").click()');
+        await sleep(300);
+
+        /* ------------- 11. UI уважает права (мастер) ----------------------- */
+        await js(win, `window.app.states.setUser(${JSON.stringify(masterLogin)})`);
+        await js(win, 'window.navigate("/clients")');
+        await sleep(1200);
+        const masterUi = await js(win, `({
+            hash: location.hash,
+            links: document.querySelectorAll('#root .app-sidebar nav a').length,
+            hasClientTable: !!document.getElementById('rows') && location.hash === '#/clients',
+        })`);
+        assert('мастера не пускают в раздел «Клиенты»',
+            masterUi.hash === '#/' && masterUi.links === 2 && !masterUi.hasClientTable,
+            JSON.stringify(masterUi));
+
+        await js(win, 'window.navigate("/appointments")');
+        await sleep(1200);
+        const masterApptUi = await js(win, `({
+            hash: location.hash,
+            addBtn: !!document.getElementById('addBtn'),
+            filterMaster: !!document.getElementById('filterMaster'),
+            statusSelects: document.querySelectorAll('[data-status]').length,
+            editButtons: document.querySelectorAll('[data-edit]').length,
+        })`);
+        assert('мастер видит свои заказы без кнопок создания и фильтра мастера',
+            masterApptUi.hash === '#/appointments' && !masterApptUi.addBtn
+            && !masterApptUi.filterMaster && masterApptUi.statusSelects > 0
+            && masterApptUi.editButtons === 0,
+            JSON.stringify(masterApptUi));
+
+        // возвращаем администратора
+        await js(win, `window.app.states.setUser(${JSON.stringify(adminUser)})`);
+
+        /* --------------------------- 12. Ошибки ---------------------------- */
         const runtimeErrors = await js(win, 'window.__errs || []');
         assert('нет ошибок выполнения в рендере', runtimeErrors.length === 0,
             runtimeErrors.join(' | '));
