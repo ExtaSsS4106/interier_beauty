@@ -196,6 +196,7 @@
                 email: email.value.trim(),
                 password: password.value,
             });
+            await window.authStorage.save(res.data);
             window.app.states.data.user = res.data;
             successAlert.classList.remove('d-none');
             successAlert.classList.add('d-flex');

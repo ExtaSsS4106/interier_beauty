@@ -68,10 +68,7 @@ function registerAuthStorage() {
 
     ipcMain.handle('db:checkConn', async (event, params) => {
         try {
-            // 1. Локальная SQLite — только проверяем, без init
-            if (await local.checkConnection()) {
-                return { ok: true, db: 'local' };
-            }else if (params) {
+            if (params) {
                 await remote.connect(params);
                 return { ok: true, db: 'remote' };
             } else{
