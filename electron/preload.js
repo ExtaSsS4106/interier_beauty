@@ -57,5 +57,10 @@ contextBridge.exposeInMainWorld('db_requests', {
     reports: {
         summary: (period) => call('reports:summary', period),
         dashboard: () => call('reports:dashboard'),
+        // Экспорт в Excel: папка выбирается системным диалогом,
+        // файл собирается в main-процессе из настроек модалки.
+        pickFolder: () => call('reports:pickFolder'),
+        export: (options) => call('reports:export', options),
+        reveal: (file) => call('reports:reveal', file),
     },
 });

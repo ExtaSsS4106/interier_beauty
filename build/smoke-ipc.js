@@ -63,6 +63,7 @@ check('страницы используют только объявленные
         // crud-объекты
         ...crudPrefixes.flatMap((p) => crudSuffixes.map((s) => `${p}.${s === 'delete' ? 'remove' : s}`)),
         'reports.summary', 'reports.dashboard',
+        'reports.pickFolder', 'reports.export', 'reports.reveal',
     ]);
     const objectNames = new Set([...crudPrefixes, 'reports']);
     const methods = new Set();
@@ -89,6 +90,7 @@ check('в main.js зарегистрированы обработчики зад
         'services:list', 'services:create', 'services:update', 'services:delete',
         'appointments:list', 'appointments:create', 'appointments:update', 'appointments:delete',
         'reports:summary', 'reports:dashboard',
+        'reports:pickFolder', 'reports:export', 'reports:reveal',
     ];
     const missing = required.filter((channel) => !handlers.has(channel));
     assert.strictEqual(missing.length, 0, `нет обработчика: ${missing.join(', ')}`);
@@ -105,6 +107,8 @@ check('CRUD-каналы обёрнуты в guard с проверкой пра�
         'appointments:list => appointments.read', 'appointments:create => appointments.write',
         'appointments:update => appointments.status',
         'reports:summary => reports.read', 'reports:dashboard => session',
+        'reports:export => reports.read', 'reports:pickFolder => reports.read',
+        'reports:reveal => reports.read',
     ];
     const missing = required.filter((item) => !guarded.has(item));
     assert.strictEqual(missing.length, 0, `без проверки прав: ${missing.join(', ')}`);

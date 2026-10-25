@@ -315,21 +315,40 @@ function totalCost(services) {
 /* ============================== Отчёт ============================== */
 
 /**
- * Отчёт по оказанным услугам и выручке.
- * @param {Array} rows  записи (appointments) с вложенными client/employee/service
- * @param {Object} opts { from, to } — границы периода в формате YYYY-MM-DD
+ * Отбор записей по периоду и набору статусов.
+ * @param {Array} rows  записи с вложенными client/employee/service
+ * @param {Object} opts { from, to, statuses } — from/to в YYYY-MM-DD,
+ *                       statuses — массив статусов (пустой/нет = все)
  */
-function buildReport(rows, opts = {}) {
+function filterRows(rows, opts = {}) {
     const from = isDate(opts.from) ? text(opts.from) : '';
     const to = isDate(opts.to) ? text(opts.to) : '';
+    const allowed = Array.isArray(opts.statuses) && opts.statuses.length
+        ? opts.statuses.map(text).filter((s) => STATUSES.includes(s))
+        : null;
 
-    const list = (Array.isArray(rows) ? rows : []).filter((row) => {
+    return (Array.isArray(rows) ? rows : []).filter((row) => {
         const date = text(row.date);
         if (!date) return false;
         if (from && date < from) return false;
         if (to && date > to) return false;
+        if (allowed) {
+            const status = text(row.status);
+            if (!allowed.includes(STATUSES.includes(status) ? status : 'new')) return false;
+        }
         return true;
     });
+}
+
+/**
+ * Отчёт по оказанным услугам и выручке.
+ * @param {Array} rows  записи (appointments) с вложенными client/employee/service
+ * @param {Object} opts { from, to, statuses } — границы периода и статусы
+ */
+function buildReport(rows, opts = {}) {
+    const from = isDate(opts.from) ? text(opts.from) : '';
+    const to = isDate(opts.to) ? text(opts.to) : '';
+    const list = filterRows(rows, opts);
 
     const byService = new Map();
     const byMaster = new Map();
@@ -416,6 +435,211 @@ function reportBounds(rows) {
     return { min: dates[0] || null, max: dates[dates.length - 1] || null, total: dates.length };
 }
 
+/* ====================== Экспорт отчёта в Excel ====================== */
+
+// Разделы, которые можно включить в выгрузку (порядок = порядок листов)
+const EXPORT_SECTIONS = ['summary', 'services', 'masters', 'clients', 'appointments'];
+const EXPORT_SECTION_TITLES = {
+    summary: 'Сводка',
+    services: 'Услуги',
+    masters: 'Мастера',
+    clients: 'Клиенты',
+    appointments: 'Записи',
+};
+
+const money = (value) => ({ value: Number(value) || 0, style: 'money' });
+const integer = (value) => ({ value: Number(value) || 0, style: 'int' });
+const boldText = (value) => ({ value, style: 'bold' });
+const boldMoney = (value) => ({ value: Number(value) || 0, style: 'boldMoney' });
+const boldInt = (value) => ({ value: Number(value) || 0, style: 'boldInt' });
+
+/**
+ * Готовит «блоки» отчёта: заголовок, ширины колонок и строки данных.
+ * Чистая функция — используется main.js для генерации xlsx и покрывается тестами.
+ *
+ * @param {Object} report  результат buildReport()
+ * @param {Array} rows     отфильтрованные записи (для листа «Записи»)
+ * @param {Object} opts    { sections: [...], layout: 'sheets' | 'single' }
+ */
+function exportBlocks(report, rows, opts = {}) {
+    const wanted = Array.isArray(opts.sections) && opts.sections.length
+        ? opts.sections.map(text)
+        : EXPORT_SECTIONS;
+    const sections = EXPORT_SECTIONS.filter((key) => wanted.includes(key));
+    const bounds = report.bounds || {};
+    const st = report.statuses || {};
+    const period = report.from || report.to
+        ? `${formatDate(report.from) || '…'} — ${formatDate(report.to) || '…'}`
+        : 'всё время';
+    const share = (value) => (report.revenue ? (Number(value) || 0) / report.revenue : 0);
+    const sum = (list, key) => (list || []).reduce((total, item) => total + Number(item[key] || 0), 0);
+
+    const blocks = [];
+
+    if (sections.includes('summary')) {
+        blocks.push({
+            key: 'summary',
+            title: EXPORT_SECTION_TITLES.summary,
+            widths: [46, 34],
+            header: ['Показатель', 'Значение'],
+            rows: [
+                ['Период отчёта', period],
+                ['Показано записей', integer(report.total)],
+                ['Записана (ждёт подтверждения)', integer(st.new || 0)],
+                ['Принята (мастер принял)', integer(st.accepted || 0)],
+                ['Оказана', integer(st.done || 0)],
+                ['Отменена', integer(st.cancelled || 0)],
+                [boldText('Выручка (только оказанные)'), boldMoney(report.revenue)],
+                ['План (без отменённых)', money(report.planned)],
+                ['Средний чек', money(report.avgCheck)],
+                ['Записей в базе всего', integer(bounds.total || 0)],
+                ['Диапазон дат в базе',
+                    `${formatDate(bounds.min) || '—'} — ${formatDate(bounds.max) || '—'}`],
+            ],
+        });
+    }
+
+    if (sections.includes('services')) {
+        blocks.push({
+            key: 'services',
+            title: EXPORT_SECTION_TITLES.services,
+            widths: [40, 14, 18, 12],
+            header: ['Услуга', 'Кол-во', 'Выручка', 'Доля'],
+            rows: [
+                ...(report.services || []).map((s) => [
+                    s.title,
+                    integer(s.count),
+                    money(s.revenue),
+                    { value: share(s.revenue), style: 'pct' },
+                ]),
+                [boldText('ИТОГО'), boldInt(sum(report.services, 'count')),
+                    boldMoney(report.revenue), { value: report.revenue ? 1 : 0, style: 'boldPct' }],
+            ],
+        });
+    }
+
+    if (sections.includes('masters')) {
+        blocks.push({
+            key: 'masters',
+            title: EXPORT_SECTION_TITLES.masters,
+            widths: [40, 18, 18, 12],
+            header: ['Мастер', 'Оказано услуг', 'Выручка', 'Доля'],
+            rows: [
+                ...(report.masters || []).map((m) => [
+                    m.name,
+                    integer(m.count),
+                    money(m.revenue),
+                    { value: share(m.revenue), style: 'pct' },
+                ]),
+                [boldText('ИТОГО'), boldInt(sum(report.masters, 'count')),
+                    boldMoney(report.revenue), { value: report.revenue ? 1 : 0, style: 'boldPct' }],
+            ],
+        });
+    }
+
+    if (sections.includes('clients')) {
+        blocks.push({
+            key: 'clients',
+            title: EXPORT_SECTION_TITLES.clients,
+            widths: [40, 20, 18],
+            header: ['Клиент', 'Оказано услуг', 'Сумма'],
+            rows: [
+                ...(report.clients || []).map((c) => [
+                    c.name,
+                    integer(c.count),
+                    money(c.spent),
+                ]),
+                [boldText('ИТОГО'), boldInt(sum(report.clients, 'count')),
+                    boldMoney(sum(report.clients, 'spent'))],
+            ],
+        });
+    }
+
+    if (sections.includes('appointments')) {
+        const list = [...(rows || [])].sort((a, b) => String(a.date).localeCompare(String(b.date))
+            || String(a.time).localeCompare(String(b.time)));
+        blocks.push({
+            key: 'appointments',
+            title: EXPORT_SECTION_TITLES.appointments,
+            widths: [13, 10, 28, 28, 32, 16, 16],
+            header: ['Дата', 'Время', 'Клиент', 'Мастер', 'Услуга', 'Стоимость', 'Статус'],
+            rows: [
+                ...list.map((row) => {
+                    const client = row.client || {};
+                    const employee = row.employee || {};
+                    const service = row.service || {};
+                    const status = STATUSES.includes(text(row.status)) ? text(row.status) : 'new';
+                    return [
+                        formatDate(row.date) || text(row.date),
+                        formatTime(row.time) || text(row.time),
+                        [client.last_name, client.first_name].filter(Boolean).join(' ') || '—',
+                        [employee.last_name, employee.first_name].filter(Boolean).join(' ') || '—',
+                        service.title || '—',
+                        money(visitCost(service)),
+                        STATUS_LABELS[status] || status,
+                    ];
+                }),
+                [boldText('ИТОГО'), '', '', '', '',
+                    boldMoney(list.reduce((total, row) => total + visitCost(row.service || {}), 0)),
+                    `${list.length} записей`],
+            ],
+        });
+    }
+
+    return blocks;
+}
+
+/**
+ * Превращает блоки в листы xlsx.
+ * opts.layout === 'single' — один лист «Отчёт» с разделами подряд,
+ * иначе (по умолчанию) — отдельный лист на каждый раздел.
+ */
+function exportSheets(report, rows, opts = {}) {
+    const blocks = exportBlocks(report, rows, opts);
+    if (!blocks.length) return [{ name: 'Отчёт', rows: [] }];
+
+    if (text(opts.layout) === 'single') {
+        const columns = Math.max(...blocks.map((block) => block.header.length));
+        const widths = Array.from({ length: columns }, (_, index) => Math.max(
+            ...blocks.map((block) => Number(block.widths[index] || 20)),
+        ));
+        const outRows = [];
+        blocks.forEach((block, index) => {
+            if (index) outRows.push([]);                       // пустая строка между разделами
+            outRows.push([{ value: block.title, style: 'section' }]);
+            outRows.push(block.header.map((title) => ({ value: title, style: 'bold' })));
+            outRows.push(...block.rows);
+        });
+        return [{ name: 'Отчёт', widths, rows: outRows }];
+    }
+
+    return blocks.map((block) => ({
+        name: block.title,
+        widths: block.widths,
+        header: block.header,
+        rows: block.rows,
+    }));
+}
+
+/** Имя файла без запрещённых для ФС знаков и обязательно с расширением .xlsx. */
+function safeFileName(name, fallback = 'Отчёт') {
+    const cleaned = text(name)
+        .replace(/[*/:<>?\\|[\]"]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 120);
+    const base = cleaned || fallback;
+    return /\.xlsx$/i.test(base) ? base : `${base}.xlsx`;
+}
+
+/** Предлагаемое имя файла: «Отчёт 2026-10-01_2026-10-31.xlsx». */
+function defaultReportName(opts = {}) {
+    const from = isDate(opts.from) ? text(opts.from) : '';
+    const to = isDate(opts.to) ? text(opts.to) : '';
+    const tail = from && to ? `${from}_${to}` : (from || to || 'всё-время');
+    return safeFileName(`Отчёт ${tail}`);
+}
+
 module.exports = {
     // константы
     ROLES,
@@ -449,6 +673,14 @@ module.exports = {
     findConflict,
     visitCost,
     totalCost,
+    filterRows,
     buildReport,
     reportBounds,
+    // экспорт в Excel
+    EXPORT_SECTIONS,
+    EXPORT_SECTION_TITLES,
+    exportBlocks,
+    exportSheets,
+    safeFileName,
+    defaultReportName,
 };

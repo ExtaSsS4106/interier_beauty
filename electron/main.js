@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, dialog, shell } = require('electron');
 const fs = require('fs/promises');
 const path = require('path');
 const bcrypt = require('bcrypt');
@@ -6,6 +6,7 @@ const bcrypt = require('bcrypt');
 const local = require('./modules/db/local.js');
 const remote = require('./modules/db/remoute.js');
 const booking = require('./modules/booking.js');
+const xlsx = require('./modules/xlsx.js');
 
 
 const authFile = () => path.join(app.getPath('userData'), 'auth.json');
@@ -501,6 +502,94 @@ function registerDbApi() {
         const m = models();
         const rows = await m.appointments.findAll({ include: appointmentInclude(m) });
         return booking.buildReport(rows.map(toJson), payload || {});
+    }));
+
+    // Выбор папки для сохранения отчёта (системный диалог каталога).
+    ipcMain.handle('reports:pickFolder', guard('reports.read', async () => {
+        const options = {
+            title: 'Выберите папку для сохранения отчёта',
+            buttonLabel: 'Выбрать папку',
+            properties: ['openDirectory', 'createDirectory'],
+        };
+        const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+        const result = win ? await dialog.showOpenDialog(win, options)
+            : await dialog.showOpenDialog(options);
+        if (result.canceled || !result.filePaths.length) return null;
+        return result.filePaths[0];
+    }));
+
+    // Показать сохранённый файл в проводнике (кнопка «Открыть папку»).
+    ipcMain.handle('reports:reveal', guard('reports.read', async (file) => {
+        const target = booking.text(file);
+        if (!target) throw new Error('Файл не указан.');
+        try {
+            await fs.stat(target);
+        } catch {
+            throw new Error('Файл не найден.');
+        }
+        shell.showItemInFolder(target);
+        return true;
+    }));
+
+    // Генерация Excel-файла (.xlsx) с гибкими настройками из модалки отчёта:
+    // период, набор разделов, статусы, раскладка по листам, папка и имя файла.
+    ipcMain.handle('reports:export', guard('reports.read', async (payload = {}) => {
+        const m = models();
+
+        const opts = {
+            from: booking.text(payload.from),
+            to: booking.text(payload.to),
+            statuses: Array.isArray(payload.statuses) && payload.statuses.length
+                ? booking.STATUSES.filter((s) => payload.statuses.map(String).includes(s))
+                : booking.STATUSES,
+        };
+        if (opts.from && opts.to && opts.from > opts.to) {
+            throw new Error('Начальная дата позже конечной.');
+        }
+        if (!opts.statuses.length) throw new Error('Отметьте хотя бы один статус.');
+
+        const sections = Array.isArray(payload.sections) && payload.sections.length
+            ? booking.EXPORT_SECTIONS.filter((key) => payload.sections.map(String).includes(key))
+            : booking.EXPORT_SECTIONS;
+        if (!sections.length) throw new Error('Отметьте хотя бы один раздел отчёта.');
+
+        const folder = booking.text(payload.folder);
+        if (!folder) throw new Error('Выберите папку для сохранения отчёта.');
+        let stat = null;
+        try {
+            stat = await fs.stat(folder);
+        } catch {
+            throw new Error('Папка не существует — выберите другую.');
+        }
+        if (!stat.isDirectory()) throw new Error('Выбранный путь не является папкой.');
+
+        const rows = (await m.appointments.findAll({
+            include: appointmentInclude(m),
+            order: [['date', 'ASC'], ['time', 'ASC']],
+        })).map(toJson);
+
+        const list = booking.filterRows(rows, opts);
+        const report = booking.buildReport(rows, opts);
+        const sheets = booking.exportSheets(report, list, { sections, layout: payload.layout });
+        const buffer = xlsx.toXlsx(sheets);
+
+        const fileName = booking.safeFileName(payload.fileName || booking.defaultReportName(opts));
+        const file = path.join(folder, fileName);
+        await fs.writeFile(file, buffer);
+
+        console.log('[export] отчёт сохранён:', file);
+        return {
+            file,
+            fileName,
+            bytes: buffer.length,
+            sheets: sheets.length,
+            rows: list.length,
+            report: {
+                total: report.total,
+                revenue: report.revenue,
+                done: report.done,
+            },
+        };
     }));
 
     // Сводка для главной страницы: размеры справочников, расписание на сегодня

@@ -19,8 +19,9 @@
         <button type="button" class="btn btn-outline-secondary" id="printBtn">
             <i class="bi bi-printer me-1"></i>Печать
         </button>
-        <button type="button" class="btn btn-primary" id="buildBtn">
-            <i class="bi bi-bar-chart-line me-1"></i>Сформировать
+        <button type="button" class="btn btn-primary" id="buildBtn"
+                title="Настроить отчёт и сохранить его в Excel">
+            <i class="bi bi-file-earmark-excel me-1"></i>Сформировать
         </button>
     </div>
 </div>
@@ -182,6 +183,143 @@
         </div>
     </div>
 </div>
+
+<!-- Модалка экспорта отчёта в Excel -->
+<div class="modal fade" id="exportModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content rounded-4">
+            <form id="exportForm" novalidate>
+                <div class="modal-header border-0 pb-0">
+                    <div>
+                        <h2 class="modal-title fs-6 fw-semibold mb-1">Экспорт отчёта в Excel</h2>
+                        <div class="text-body-secondary small">Настройте, что попадёт в файл .xlsx, и выберите папку</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                </div>
+
+                <div class="modal-body pt-2">
+                    <div class="alert alert-danger d-none py-2 small mb-3" id="exportError" role="alert">
+                        <span id="exportErrorText"></span>
+                    </div>
+
+                    <!-- Период -->
+                    <div class="mb-3">
+                        <div class="form-label small text-body-secondary mb-1">Период</div>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <input type="date" class="form-control" id="expFrom" aria-label="Период с">
+                            </div>
+                            <div class="col-6">
+                                <input type="date" class="form-control" id="expTo" aria-label="Период по">
+                            </div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 mt-2">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-exp-range="this">Текущий месяц</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-exp-range="last">Прошлый месяц</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-exp-range="all">Всё время</button>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <!-- Разделы -->
+                        <div class="col-12 col-md-6">
+                            <div class="form-label small text-body-secondary mb-1">Разделы файла</div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="expSummary" checked>
+                                <label class="form-check-label" for="expSummary">Сводка (KPI)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="expServices" checked>
+                                <label class="form-check-label" for="expServices">Услуги</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="expMasters" checked>
+                                <label class="form-check-label" for="expMasters">Мастера</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="expClients" checked>
+                                <label class="form-check-label" for="expClients">Клиенты</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="expRows" checked>
+                                <label class="form-check-label" for="expRows">Все записи</label>
+                            </div>
+                        </div>
+
+                        <!-- Статусы -->
+                        <div class="col-12 col-md-6">
+                            <div class="form-label small text-body-secondary mb-1">Статусы записей</div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="expStatusNew" checked>
+                                <label class="form-check-label" for="expStatusNew">Записана</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="expStatusAccepted" checked>
+                                <label class="form-check-label" for="expStatusAccepted">Принята</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="expStatusDone" checked>
+                                <label class="form-check-label" for="expStatusDone">Оказана</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="expStatusCancelled" checked>
+                                <label class="form-check-label" for="expStatusCancelled">Отменена</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Раскладка -->
+                    <div class="mb-3">
+                        <div class="form-label small text-body-secondary mb-1">Раскладка</div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="expLayout" id="expLayoutSheets" value="sheets" checked>
+                            <label class="form-check-label" for="expLayoutSheets">Отдельный лист на раздел</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="expLayout" id="expLayoutSingle" value="single">
+                            <label class="form-check-label" for="expLayoutSingle">Всё на одном листе</label>
+                        </div>
+                    </div>
+
+                    <!-- Куда сохранять -->
+                    <div class="mb-2">
+                        <label class="form-label small text-body-secondary mb-1" for="expFolder">Папка сохранения</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="expFolder"
+                                   placeholder="Нажмите «Обзор…» или вставьте путь" autocomplete="off">
+                            <button type="button" class="btn btn-outline-secondary" id="expFolderBtn">
+                                <i class="bi bi-folder2-open me-1"></i>Обзор…
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mb-1">
+                        <label class="form-label small text-body-secondary mb-1" for="expFile">Имя файла</label>
+                        <input type="text" class="form-control" id="expFile" autocomplete="off">
+                    </div>
+                    <div class="form-text" id="expPreview">Выберите папку — здесь появится полный путь к файлу.</div>
+
+                    <div class="alert alert-success d-none py-2 small mt-3 mb-0" id="exportSuccess" role="status">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <i class="bi bi-check-circle-fill text-success"></i>
+                            <span id="exportSuccessText"></span>
+                            <button type="button" class="btn btn-sm btn-outline-success ms-auto" id="expOpenBtn">
+                                Открыть папку
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Закрыть</button>
+                    <button type="submit" class="btn btn-primary" id="exportSubmit">
+                        <i class="bi bi-file-earmark-excel me-1"></i>Сформировать файл
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -308,20 +446,181 @@
         }
 
         try {
-            await ui.withBusy($('buildBtn'), async () => {
-                render(await api.summary({ from, to }));
-            }, 'Считаем…');
+            render(await api.summary({ from, to }));
         } catch (error) {
             showError(error.message || 'Не удалось построить отчёт');
         }
     }
 
-    $('buildBtn').addEventListener('click', build);
+    $('buildBtn').addEventListener('click', openExport);
     $('printBtn').addEventListener('click', () => window.print());
     $('thisMonth').addEventListener('click', () => { const r = thisMonthRange(); setPeriod(r.from, r.to); build(); });
     $('lastMonth').addEventListener('click', () => { const r = lastMonthRange(); setPeriod(r.from, r.to); build(); });
     $('allTime').addEventListener('click', () => { setPeriod('', ''); build(); });
     $('emptyAllTime')?.addEventListener('click', () => { setPeriod('', ''); build(); });
+    // Правка дат руками сразу пересчитывает отчёт на странице
+    $('dateFrom').addEventListener('change', build);
+    $('dateTo').addEventListener('change', build);
+
+    /* --------------------- Экспорт в Excel (модалка) --------------------- */
+
+    const SECTIONS = [
+        ['expSummary', 'summary'],
+        ['expServices', 'services'],
+        ['expMasters', 'masters'],
+        ['expClients', 'clients'],
+        ['expRows', 'appointments'],
+    ];
+    const EXPORT_STATUSES = [
+        ['expStatusNew', 'new'],
+        ['expStatusAccepted', 'accepted'],
+        ['expStatusDone', 'done'],
+        ['expStatusCancelled', 'cancelled'],
+    ];
+    const FOLDER_KEY = 'report-folder';
+    let lastFile = '';
+
+    const exportModal = () => window.bootstrap.Modal.getOrCreateInstance($('exportModal'));
+
+    function showExportError(message) {
+        $('exportErrorText').textContent = message || '';
+        $('exportError').classList.toggle('d-none', !message);
+    }
+
+    function showExportSuccess(result) {
+        lastFile = result ? result.file : '';
+        $('exportSuccessText').textContent = result
+            ? `Файл сохранён: ${result.file} · ${result.sheets} лист(ов) · ${ui.num(result.rows)} записей`
+            : '';
+        $('exportSuccess').classList.toggle('d-none', !result);
+    }
+
+    function suggestFileName() {
+        const from = $('expFrom').value;
+        const to = $('expTo').value;
+        const tail = from && to ? `${from}_${to}` : (from || to || 'всё-время');
+        $('expFile').value = `Отчёт ${tail}.xlsx`;
+    }
+
+    function updateExportPreview() {
+        const folder = $('expFolder').value.trim();
+        const file = $('expFile').value.trim() || 'Отчёт.xlsx';
+        $('expPreview').textContent = folder
+            ? `Будет сохранено: ${folder.replace(/\/+$/, '')}/${file}`
+            : 'Выберите папку — здесь появится полный путь к файлу.';
+    }
+
+    function setExportPeriod(from, to) {
+        $('expFrom').value = from || '';
+        $('expTo').value = to || '';
+        suggestFileName();
+        updateExportPreview();
+    }
+
+    function openExport() {
+        // подхватываем период, выбранный на странице, и прошлую папку
+        $('expFrom').value = $('dateFrom').value;
+        $('expTo').value = $('dateTo').value;
+        $('expFolder').value = localStorage.getItem(FOLDER_KEY) || '';
+        suggestFileName();
+        showExportError('');
+        showExportSuccess(null);
+        updateExportPreview();
+        exportModal().show();
+    }
+
+    $('expFolderBtn').addEventListener('click', async () => {
+        showExportError('');
+        try {
+            const folder = await api.pickFolder();
+            if (folder === null || folder === undefined) return; // отменили выбор
+            $('expFolder').value = folder;
+            updateExportPreview();
+        } catch (error) {
+            showExportError(error.message || 'Не удалось выбрать папку');
+        }
+    });
+
+    document.querySelectorAll('[data-exp-range]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const range = btn.dataset.expRange === 'this' ? thisMonthRange()
+                : btn.dataset.expRange === 'last' ? lastMonthRange()
+                    : { from: '', to: '' };
+            setExportPeriod(range.from, range.to);
+        });
+    });
+
+    ['expFolder', 'expFile'].forEach((id) => {
+        $(id).addEventListener('input', updateExportPreview);
+    });
+    $('expFile').addEventListener('blur', () => {
+        if (!$('expFile').value.trim()) suggestFileName();
+        updateExportPreview();
+    });
+
+    $('expOpenBtn').addEventListener('click', async () => {
+        if (!lastFile) return;
+        try {
+            await api.reveal(lastFile);
+        } catch (error) {
+            ui.toast(error.message || 'Не удалось открыть папку', 'danger');
+        }
+    });
+
+    $('exportForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        showExportError('');
+        showExportSuccess(null);
+
+        const from = $('expFrom').value;
+        const to = $('expTo').value;
+        if (from && to && from > to) {
+            showExportError('Начальная дата позже конечной.');
+            return;
+        }
+
+        const sections = SECTIONS.filter(([id]) => $(id).checked).map(([, key]) => key);
+        if (!sections.length) {
+            showExportError('Отметьте хотя бы один раздел отчёта.');
+            return;
+        }
+
+        const statuses = EXPORT_STATUSES.filter(([id]) => $(id).checked).map(([, key]) => key);
+        if (!statuses.length) {
+            showExportError('Отметьте хотя бы один статус.');
+            return;
+        }
+
+        const folder = $('expFolder').value.trim();
+        if (!folder) {
+            showExportError('Выберите папку для сохранения файла.');
+            return;
+        }
+        const fileName = $('expFile').value.trim();
+        if (!fileName) {
+            showExportError('Укажите имя файла.');
+            return;
+        }
+
+        try {
+            await ui.withBusy($('exportSubmit'), async () => {
+                const result = await api.export({
+                    from,
+                    to,
+                    sections,
+                    statuses,
+                    layout: $('expLayoutSingle').checked ? 'single' : 'sheets',
+                    folder,
+                    fileName,
+                });
+                localStorage.setItem(FOLDER_KEY, folder);
+                showExportSuccess(result);
+                ui.toast('Отчёт сформирован: ' + result.fileName, 'success');
+            }, 'Формируем…');
+        } catch (error) {
+            showExportError(error.message || 'Не удалось сформировать файл');
+        }
+    });
 
     const month = thisMonthRange();
     setPeriod(month.from, month.to);

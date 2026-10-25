@@ -190,6 +190,116 @@ test('buildReport: без дат показываются все записи', 
     assert.strictEqual(report.revenue, 3000);
 });
 
+/* ------------------------- Экспорт отчёта в Excel ------------------------ */
+
+test('filterRows: период + набор статусов', () => {
+    const october = booking.filterRows(rows, { from: '2026-10-01', to: '2026-10-31' });
+    assert.strictEqual(october.length, 3);
+
+    const onlyDone = booking.filterRows(rows, { statuses: ['done'] });
+    assert.strictEqual(onlyDone.length, 2);
+    assert.ok(onlyDone.every((r) => r.status === 'done'));
+
+    const mixed = booking.filterRows(rows, {
+        from: '2026-10-01', to: '2026-10-31', statuses: ['new', 'cancelled'],
+    });
+    assert.strictEqual(mixed.length, 1);
+    assert.strictEqual(mixed[0].status, 'cancelled');
+
+    // записи без даты и с мусорным статусом не должны ронять отчёт
+    assert.strictEqual(booking.filterRows([{ date: '', status: 'done' }], {}).length, 0);
+    assert.strictEqual(booking.filterRows([{ date: '2026-10-01', status: 'wat' }], {}).length, 1);
+});
+
+test('buildReport: фильтр статусов отсекает лишнее из выручки', () => {
+    const report = booking.buildReport(rows, { statuses: ['done'] });
+    assert.strictEqual(report.total, 2);
+    assert.strictEqual(report.revenue, 3000);
+    assert.strictEqual(report.statuses.cancelled, 0, 'отменённая не должна попасть в счётчики');
+});
+
+test('exportBlocks: пять разделов с заголовками и итогами', () => {
+    const blocks = booking.exportBlocks(
+        booking.buildReport(rows, {}),
+        booking.filterRows(rows, {}),
+        {},
+    );
+    assert.deepStrictEqual(
+        blocks.map((b) => b.key),
+        ['summary', 'services', 'masters', 'clients', 'appointments'],
+    );
+    blocks.forEach((block) => {
+        assert.ok(block.title && block.header.length && block.widths.length === block.header.length,
+            `у раздела «${block.title}» не совпадают ширины и шапка`);
+        assert.ok(block.rows.length >= 1, `раздел «${block.title}» пуст`);
+    });
+
+    const services = blocks.find((b) => b.key === 'services');
+    const totalRow = services.rows[services.rows.length - 1];
+    assert.strictEqual(totalRow[0].value, 'ИТОГО');
+    assert.strictEqual(totalRow[2].value, 3000, 'итог по выручке');
+    assert.strictEqual(totalRow[3].style, 'boldPct');
+
+    const summary = blocks.find((b) => b.key === 'summary');
+    assert.ok(summary.rows.some((r) => r[0].value === 'Выручка (только оказанные)'));
+});
+
+test('exportBlocks: раздел «Записи» отсортирован по дате и содержит статусы', () => {
+    const list = booking.filterRows(rows, {});
+    const block = booking.exportBlocks(booking.buildReport(rows, {}), list, {})
+        .find((b) => b.key === 'appointments');
+    const dates = block.rows.slice(0, -1).map((r) => r[0]);
+    assert.deepStrictEqual(dates, [
+        '01.10.2026', '10.10.2026', '15.10.2026', '05.11.2026',
+    ]);
+    assert.ok(block.rows.every((r) => r.length === 7), 'все 7 колонок заполнены');
+    assert.strictEqual(block.rows[0][6], 'Оказана');
+    assert.strictEqual(block.rows[2][6], 'Отменена');
+    assert.strictEqual(block.rows.at(-1)[0].value, 'ИТОГО', 'нет итоговой строки');
+});
+
+test('exportSheets: по умолчанию листы, в single — один лист', () => {
+    const report = booking.buildReport(rows, {});
+    const list = booking.filterRows(rows, {});
+
+    assert.strictEqual(booking.exportSheets(report, list, {}).length, 5);
+    const single = booking.exportSheets(report, list, { layout: 'single' });
+    assert.strictEqual(single.length, 1);
+    assert.strictEqual(single[0].name, 'Отчёт');
+    // заголовки разделов вынесены в строки, а не потеряны
+    const titles = single[0].rows.flat().map((c) => (c && c.value) || '');
+    ['Сводка', 'Услуги', 'Мастера', 'Клиенты', 'Записи'].forEach((title) => {
+        assert.ok(titles.includes(title), `нет раздела «${title}»`);
+    });
+});
+
+test('exportSheets: неизвестные разделы игнорируются, пустой список = все', () => {
+    const report = booking.buildReport(rows, {});
+    const list = booking.filterRows(rows, {});
+    assert.strictEqual(booking.exportSheets(report, list, { sections: ['summary', 'nope'] }).length, 1);
+    assert.strictEqual(booking.exportSheets(report, list, { sections: [] }).length, 5);
+});
+
+test('safeFileName: вычищает запрещённые знаки и добавляет .xlsx', () => {
+    assert.strictEqual(booking.safeFileName('Отчёт: 2026/10?*'), 'Отчёт 2026 10.xlsx');
+    assert.strictEqual(booking.safeFileName('Готово.xlsx'), 'Готово.xlsx');
+    assert.strictEqual(booking.safeFileName('   '), 'Отчёт.xlsx');
+    assert.strictEqual(booking.safeFileName(null, 'fallback.xlsx'), 'fallback.xlsx');
+    assert.strictEqual(booking.safeFileName('x'.repeat(300)).length <= 125, true);
+});
+
+test('defaultReportName: имя файла повторяет период', () => {
+    assert.strictEqual(
+        booking.defaultReportName({ from: '2026-10-01', to: '2026-10-31' }),
+        'Отчёт 2026-10-01_2026-10-31.xlsx',
+    );
+    assert.strictEqual(booking.defaultReportName({}), 'Отчёт всё-время.xlsx');
+    assert.strictEqual(
+        booking.defaultReportName({ from: '2026-10-01' }),
+        'Отчёт 2026-10-01.xlsx',
+    );
+});
+
 /* ---------------------------- Роли и права ----------------------------- */
 
 test('ROLES: админ/менеджер/мастер и статус «Принята»', () => {
