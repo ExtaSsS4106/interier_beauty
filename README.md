@@ -6,6 +6,10 @@ Electron-приложение для ведения клиентской баз�
 (`electron/preload.js` → `electron/main.js`) — структура проекта не менялась,
 добавлены только разделы задания.
 
+
+<img width="1857" height="1046" alt="image" src="https://github.com/user-attachments/assets/155f307f-6490-40d4-9d93-65e0d05e94ee" />
+
+
 ## Запуск
 
 ```bash
