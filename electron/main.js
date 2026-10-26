@@ -501,7 +501,16 @@ function registerDbApi() {
     ipcMain.handle('reports:summary', guard('reports.read', async (payload = {}) => {
         const m = models();
         const rows = await m.appointments.findAll({ include: appointmentInclude(m) });
-        return booking.buildReport(rows.map(toJson), payload || {});
+        // Даты buildReport сам отфильтровывает через isDate, а вот мусорный
+        // statuses (непустой, но целиком недопустимый) дал бы пустой отчёт —
+        // оставляем только валидные значения, как в reports:export.
+        const opts = { from: payload.from, to: payload.to };
+        if (Array.isArray(payload.statuses)) {
+            const valid = booking.STATUSES
+                .filter((s) => payload.statuses.map(String).includes(s));
+            if (valid.length) opts.statuses = valid;
+        }
+        return booking.buildReport(rows.map(toJson), opts);
     }));
 
     // Выбор папки для сохранения отчёта (системный диалог каталога).

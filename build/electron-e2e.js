@@ -39,7 +39,12 @@ function assert(name, condition, details = '') {
 }
 
 async function js(win, code) {
-    return win.webContents.executeJavaScript(code, true);
+    let target = win;
+    if (!target || !target.webContents) {
+        [target] = BrowserWindow.getAllWindows();
+        if (!target || !target.webContents) throw new Error('окно приложения потеряно');
+    }
+    return target.webContents.executeJavaScript(code, true);
 }
 
 async function waitFor(win, expression, timeout = 20000) {
@@ -467,7 +472,76 @@ app.whenReady().then(async () => {
         assert('разбивки отчёта заполнены (услуги/мастера/клиенты)',
             reportState.tables >= 3, `строк: ${reportState.tables}`);
 
-        /* ---------------- 10. Шторка вместо шапки -------------------------- */
+        /* ---------------- 10. Экспорт отчёта в Excel ------------------------- */
+        const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'salon-export-'));
+        try {
+            // открываем модалку кнопкой «Сформировать»
+            await js(win, 'document.getElementById("buildBtn").click()');
+            await sleep(500);
+            const modalOpen = await js(win, '!!document.getElementById("exportModal") && !document.getElementById("exportModal").classList.contains("d-none")');
+            assert('модалка экспорта открывается по кнопке «Сформировать»', modalOpen, String(modalOpen));
+
+            // валидация: пустая папка → ошибка, файл не создаётся
+            await js(win, `(() => {
+                const d = document;
+                d.getElementById('expFolder').value = '';
+                d.getElementById('expFolder').dispatchEvent(new Event('input', { bubbles: true }));
+                d.getElementById('expFile').value = 'Отчёт е2е.xlsx';
+                d.getElementById('expFile').dispatchEvent(new Event('input', { bubbles: true }));
+                d.getElementById('exportForm').requestSubmit();
+                return true;
+            })()`);
+            await sleep(400);
+            const errShown = await js(win, '!document.getElementById("exportError").classList.contains("d-none")');
+            const filesBefore = fs.readdirSync(exportDir).length;
+            assert('без папки ошибка и файл не создаётся', errShown && filesBefore === 0,
+                `err=${errShown} files=${filesBefore}`);
+
+            // заполняем папку и имя файла, формируем отчёт (все разделы и статусы по умолчанию)
+            const formState = await js(win, `(() => {
+                const d = document;
+                const f = d.getElementById('expFolder');
+                const fe = d.getElementById('expFile');
+                f.value = ${JSON.stringify(exportDir)};
+                f.dispatchEvent(new Event('input', { bubbles: true }));
+                fe.value = 'Отчёт е2е.xlsx';
+                fe.dispatchEvent(new Event('input', { bubbles: true }));
+                d.getElementById('exportForm').requestSubmit();
+                return { folder: f.value, file: fe.value };
+            })()`);
+            // ждём завершения асинхронного экспорта (модалка покажет успех или ошибку)
+            let successShown = false;
+            let errorText = '';
+            for (let i = 0; i < 50; i += 1) {
+                const state = await js(win, `({
+                    success: !document.getElementById("exportSuccess").classList.contains("d-none"),
+                    error: !document.getElementById("exportError").classList.contains("d-none"),
+                    errorText: document.getElementById("exportErrorText").textContent
+                })`);
+                if (state.success || state.error) {
+                    successShown = state.success;
+                    errorText = state.errorText || '';
+                    break;
+                }
+                await sleep(100);
+            }
+            const filesAfter = fs.readdirSync(exportDir).length;
+            const xlsxFile = filesAfter > 0 ? path.join(exportDir, fs.readdirSync(exportDir)[0]) : null;
+            assert('файл .xlsx создан в выбранной папке',
+                successShown && filesAfter === 1 && xlsxFile && xlsxFile.endsWith('.xlsx'),
+                `formState=${JSON.stringify(formState)} success=${successShown} error=${errorText} files=${filesAfter} ${JSON.stringify(fs.readdirSync(exportDir))}`);
+
+            // проверяем, что это валидный zip/xlsx с обязательными частями книги
+            const xlsxMod = require(path.join(root, 'electron', 'modules', 'xlsx.js'));
+            const parts = xlsxMod.unzip(fs.readFileSync(xlsxFile));
+            assert('xlsx содержит обязательные части книги',
+                parts.has('[Content_Types].xml') && parts.has('xl/workbook.xml') && parts.has('xl/styles.xml') && parts.has('xl/worksheets/sheet1.xml'),
+                [...parts.keys()].join(', '));
+        } finally {
+            fs.rmSync(exportDir, { recursive: true, force: true });
+        }
+
+        /* ---------------- 11. Шторка вместо шапки -------------------------- */
         const sidebar = await js(win, `({
             sidebar: !!document.querySelector('#root .app-sidebar'),
             nav: document.querySelectorAll('#root .app-sidebar nav a').length,
