@@ -1,13 +1,24 @@
 /* Статический smoke-тест связности IPC: каждый вызов window.db_requests.* из
-   renderer'а (preload.js) должен иметь свой ipcMain.handle(...) в main.js —
-   опечатка в имени канала иначе вылезет только в запущенном приложении. */
+   renderer'а (preload.js) должен иметь свой ipcMain.handle(...) в коде
+   главного процесса — опечатка в имени канала иначе вылезет только в
+   запущенном приложении. */
 
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 
 const root = path.join(__dirname, '..');
-const mainSrc = fs.readFileSync(path.join(root, 'electron', 'main.js'), 'utf8');
+// main.js разбит на модули (electron/modules/ipc/*), поэтому код главного
+// процесса собираем со всех файлов electron/, а не только из main.js.
+const mainSrc = (() => {
+    const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) return walk(full);
+        // preload.js — код renderer'а, его ipcRenderer.invoke не каналы главного
+        return entry.name === 'preload.js' ? [] : [fs.readFileSync(full, 'utf8')];
+    });
+    return walk(path.join(root, 'electron')).join('\n');
+})();
 const preloadSrc = fs.readFileSync(path.join(root, 'electron', 'preload.js'), 'utf8');
 
 const templatesDir = path.join(root, 'templates');
@@ -31,7 +42,7 @@ const check = (name, fn) => {
     }
 };
 
-// 1. Каналы, объявленные в main.js
+// 1. Каналы, объявленные в главном процессе
 const handlers = new Set([...mainSrc.matchAll(/ipcMain\.handle\('([^']+)'/g)].map((m) => m[1]));
 
 // 2. Каналы, которые вызывает preload.js (включая шаблоны `${prefix}:create`)
@@ -44,7 +55,7 @@ for (const prefix of crudPrefixes) {
     for (const suffix of crudSuffixes) invoked.add(`${prefix}:${suffix}`);
 }
 
-check('все каналы из preload.js объявлены в main.js', () => {
+check('все каналы из preload.js объявлены в главном процессе', () => {
     const missing = [...invoked].filter((channel) => !handlers.has(channel));
     assert.strictEqual(missing.length, 0, `нет обработчика: ${missing.join(', ')}`);
 });
@@ -82,7 +93,7 @@ check('страницы используют только объявленные
     assert.strictEqual(missing.length, 0, missing.join(', '));
 });
 
-check('в main.js зарегистрированы обработчики задания №14', () => {
+check('в главном процессе зарегистрированы обработчики задания №14', () => {
     const required = [
         'admin:register', 'employees:login', 'session:logout',
         'clients:list', 'clients:create', 'clients:update', 'clients:delete',
@@ -114,7 +125,7 @@ check('CRUD-каналы обёрнуты в guard с проверкой пра�
     assert.strictEqual(missing.length, 0, `без проверки прав: ${missing.join(', ')}`);
 });
 
-check('в main.js есть сессия и проверка «Недостаточно прав»', () => {
+check('в главном процессе есть сессия и проверка «Недостаточно прав»', () => {
     assert.ok(mainSrc.includes('let session = null'), 'нет сессии в main-процессе');
     assert.ok(mainSrc.includes('function requirePermission'), 'нет requirePermission');
     assert.ok(mainSrc.includes('startSession('), 'нет входа в сессию');
